@@ -1,0 +1,33 @@
+name: Refresh Indian festivals
+
+# Pulls the latest "Holidays in India" calendar monthly so new years and corrected
+# lunar dates appear automatically. Commits only when something changed; the website
+# redeploys from that commit.
+on:
+  schedule:
+    - cron: '17 3 1 * *' # 03:17 UTC on the 1st of every month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/update-festivals.js
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- web/data/festivals.js; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/data/festivals.js
+          git commit -m "Refresh Indian festivals calendar"
+          git push

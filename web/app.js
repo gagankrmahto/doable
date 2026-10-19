@@ -132,13 +132,43 @@ function newTask(o = {}) {
 }
 
 function defaultSettings() {
-  return { theme: 'system', accent: '#7b68ee', weekStart: 1, newOnTop: true, sort: {}, group: {}, modes: {}, defaultListId: null, lastView: null, notifyAsked: false };
+  return {
+    theme: 'system', accent: '#7b68ee', weekStart: 1, newOnTop: true, sort: {}, group: {}, modes: {}, defaultListId: null, lastView: null, notifyAsked: false,
+    calLayers: { festivals: true, aol: true, ngo: true }, calSpace: 'all', spacesInit: false,
+  };
+}
+
+// The four life areas. Each is backed by a list; some also show a built-in event calendar.
+const SPACES = [
+  { id: 'personal', name: 'Personal', color: '#30a46c', aliases: ['personal'] },
+  { id: 'work', name: 'Work', color: '#0090ff', aliases: ['work'] },
+  { id: 'aol', name: 'Art of Living', color: '#f76b15', events: 'aol', aliases: ['art of living', 'aol'] },
+  { id: 'ngo', name: 'NexJyoti NGO', color: '#12a594', events: 'ngo', aliases: ['nexjyoti ngo', 'nexjyoti', 'ngo'] },
+];
+const listFrom = l => {
+  const out = { id: String(l.id), name: String(l.name || 'Untitled'), color: l.color || LIST_COLORS[0] };
+  if (SPACES.some(s => s.id === l.space)) out.space = l.space;
+  return out;
+};
+const spaceOf = list => list && SPACES.find(s => s.id === list.space);
+const spaceList = spaceId => state.lists.find(l => l.space === spaceId);
+
+// Make sure each space has a list (once per account; deterministic ids so devices don't create duplicates).
+function ensureSpaces() {
+  if (state.settings.spacesInit) return false;
+  for (const sp of SPACES) {
+    if (spaceList(sp.id)) continue;
+    const byName = state.lists.find(l => !l.space && sp.aliases.includes(l.name.trim().toLowerCase()));
+    if (byName) byName.space = sp.id;
+    else if (!getList('space-' + sp.id)) state.lists.push({ id: 'space-' + sp.id, name: sp.name, color: sp.color, space: sp.id });
+  }
+  state.settings.spacesInit = true;
+  return true;
 }
 
 function seedState() {
   const inbox = { id: uid(), name: 'My Tasks', color: LIST_COLORS[0] };
-  const personal = { id: uid(), name: 'Personal', color: LIST_COLORS[4] };
-  const work = { id: uid(), name: 'Work', color: LIST_COLORS[6] };
+  const [personal, work, aol, ngo] = SPACES.map(s => ({ id: 'space-' + s.id, name: s.name, color: s.color, space: s.id }));
   const d = n => ymd(addDays(new Date(), n));
   const tasks = [];
   let order = 0;
@@ -165,7 +195,8 @@ function seedState() {
   add({ title: 'Install Doable', listId: inbox.id, done: true, doneAt: Date.now() });
   const settings = defaultSettings();
   settings.defaultListId = inbox.id;
-  return { version: 2, lists: [inbox, personal, work], tasks, settings, stats: { completions: { [todayStr()]: 1 } }, meta: { pristine: true } };
+  settings.spacesInit = true;
+  return { version: 2, lists: [inbox, personal, work, aol, ngo], tasks, settings, stats: { completions: { [todayStr()]: 1 } }, meta: { pristine: true } };
 }
 
 // fixOrphans: reassign tasks whose list is missing. Off while syncing, since a list can arrive after its tasks.
@@ -174,7 +205,7 @@ function normalize(data, { fixOrphans = false } = {}) {
   const ver = data.version || 1;
   const s = {
     version: 2,
-    lists: data.lists.filter(l => l && l.id).map(l => ({ id: String(l.id), name: String(l.name || 'Untitled'), color: l.color || LIST_COLORS[0] })),
+    lists: data.lists.filter(l => l && l.id).map(listFrom),
     tasks: data.tasks.filter(t => t && t.id).map(t => {
       const n = newTask({ ...t, tags: Array.isArray(t.tags) ? t.tags : [] });
       if (ver < 2) n.priority = ({ 1: 1, 2: 2, 3: 4 })[t.priority] || 0; // v1 had High/Medium/Low
@@ -510,6 +541,10 @@ function quickAddDefaults() {
   if (v.type === 'tag') d.tags = [v.id];
   if (v.type === 'smart' && v.id === 'today') d.due = todayStr();
   if (v.type === 'smart' && v.id === 'starred') d.starred = true;
+  if (v.type === 'smart' && v.id === 'calendar' && state.settings.calSpace !== 'all') {
+    const l = spaceList(state.settings.calSpace);
+    if (l) d.listId = l.id;
+  }
   if (ui.mode === 'calendar' && ui.vm && ui.vm.modes.includes('calendar')) d.due = ui.calDay;
   if (ui.addDue) d.due = ui.addDue;
   return d;
@@ -652,7 +687,8 @@ function viewModel() {
     const done = items.filter(t => t.done);
     const active = items.length - done.length;
     return {
-      title: list.name, color: list.color, list, section: 'Lists', groupable: true, modes: ALL_MODES,
+      title: list.name, color: list.color, list, section: list.space ? 'Spaces' : 'Lists', groupable: true, modes: ALL_MODES,
+      comingUp: upcomingSpaceEvents(list),
       subtitle: active ? `${plural(active, 'task')} to do` : 'All caught up',
       groups: groupTasks(items, groupMode()), completed: byDoneDesc(done), calTasks: items, boardTasks: items,
       progress: items.length ? { done: done.length, total: items.length } : null,
@@ -683,7 +719,7 @@ function viewModel() {
       const total = active.length + completed.length;
       return {
         title: 'Today', icon: 'sun', showList: true, groups, completed, modes: ['list', 'board', 'calendar'], boardTasks: [...active, ...completed],
-        calTasks: top.filter(t => t.due),
+        calTasks: top.filter(t => t.due), banner: eventsByDate(T, T)[T],
         subtitle: new Date().toLocaleDateString(LOCALE, { weekday: 'long', month: 'long', day: 'numeric' }),
         progress: total ? { done: completed.length, total } : null,
         empty: completed.length
@@ -699,8 +735,9 @@ function viewModel() {
       const days = new Set();
       for (let i = 0; i < 7; i++) days.add(ymd(addDays(new Date(), i)));
       active.filter(t => t.due >= T).forEach(t => days.add(t.due));
+      const evs = eventsByDate(T, ymd(addDays(new Date(), 6)));
       [...days].sort().forEach(ds => {
-        groups.push({ key: ds, title: fmtDate(ds), hint: fmtShort(ds), tasks: S(active.filter(t => t.due === ds)), add: { due: ds }, keepEmpty: true, compact: true });
+        groups.push({ key: ds, title: fmtDate(ds), hint: fmtShort(ds), tasks: S(active.filter(t => t.due === ds)), add: { due: ds }, keepEmpty: true, compact: true, events: evs[ds] });
       });
       return {
         title: 'Upcoming', icon: 'calendar', showList: true, groups, completed: [], modes: ALL_MODES,
@@ -709,10 +746,11 @@ function viewModel() {
       };
     }
     case 'calendar': {
-      const dated = top.filter(t => t.due);
+      const sp = state.settings.calSpace && state.settings.calSpace !== 'all' ? spaceList(state.settings.calSpace) : null;
+      const items = sp ? top.filter(t => t.listId === sp.id) : top;
       return {
-        title: 'Calendar', icon: 'calendarDays', showList: true, modes: ['calendar'], groups: [], completed: [],
-        calTasks: top, subtitle: `${plural(dated.filter(t => !t.done).length, 'scheduled task')} · drag tasks between days`,
+        title: sp ? `${sp.name} calendar` : 'Calendar', icon: 'calendarDays', showList: !sp, modes: ['calendar'], groups: [], completed: [],
+        calTasks: items, subtitle: `${plural(items.filter(t => t.due && !t.done).length, 'scheduled task')} · tap a day to see its events`,
       };
     }
     case 'starred': {
@@ -787,17 +825,24 @@ function renderSidebar() {
       </button>
     </div>`).join('');
 
-  $('#listNav').innerHTML = state.lists.map(l => {
+  const listRow = l => {
     const n = active.filter(t => t.listId === l.id).length;
+    const sp = spaceOf(l);
+    const set = sp && sp.events && EVENT_SETS[sp.events];
     return `
     <div class="nav-row">
       <button class="nav-item ${cur === 'list:' + l.id ? 'active' : ''}" data-nav="list:${l.id}" data-drop-list="${l.id}">
         ${avatar(l.name, l.color, 'sm')}<span class="nav-label">${esc(l.name)}</span>
+        ${set ? `<span class="nav-emoji" title="Includes ${esc(set.name)} calendar">${set.emoji}</span>` : ''}
         ${n ? `<span class="count">${n}</span>` : ''}
       </button>
       <button class="nav-edit icon-btn xs" data-action="edit-list" data-list="${l.id}" aria-label="Edit ${esc(l.name)}" title="List settings">${icon('more')}</button>
     </div>`;
-  }).join('');
+  };
+  const spaceLists = SPACES.map(s => spaceList(s.id)).filter(Boolean);
+  $('#spaceSection').hidden = !spaceLists.length;
+  $('#spaceNav').innerHTML = spaceLists.map(listRow).join('');
+  $('#listNav').innerHTML = state.lists.filter(l => !spaceOf(l)).map(listRow).join('');
 
   const tagCounts = {};
   state.tasks.filter(t => !t.done).forEach(t => t.tags.forEach(g => { tagCounts[g] = (tagCounts[g] || 0) + 1; }));
@@ -925,6 +970,7 @@ function groupHead(g, vm, collapsed, extraCls = '') {
       <button class="gh-caret" data-action="group-toggle" data-g="${esc(g.key)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} group">${icon('chevronRight', collapsed ? '' : 'rot')}</button>
       ${label}
       ${g.hint && g.hint !== g.title ? `<span class="group-hint">${esc(g.hint)}</span>` : ''}
+      ${g.events && g.events.length ? `<span class="gh-events">${g.events.map(evPill).join('')}</span>` : ''}
       <span class="group-count">${g.tasks.length}</span>
       ${g.add ? `<button class="icon-btn xs gh-add" data-action="inline-add" data-g="${esc(g.key)}" title="Add task" aria-label="Add task to ${esc(g.title)}">${icon('plus')}</button>` : ''}
       ${g.action ? `<button class="link-btn" data-action="${g.action.name}">${esc(g.action.label)}</button>` : ''}
@@ -933,9 +979,31 @@ function groupHead(g, vm, collapsed, extraCls = '') {
   </header>`;
 }
 
+// Next few events from a space's own calendar (e.g. Art of Living), shown at the top of that list.
+function upcomingSpaceEvents(list) {
+  const sp = spaceOf(list);
+  if (!sp || !sp.events || !layerOn(sp.events)) return null;
+  const T = todayStr();
+  const map = eventsByDate(T, ymd(addDays(new Date(), 60)), [sp.events]);
+  const evs = Object.keys(map).sort().flatMap(d => map[d]).slice(0, 4);
+  return evs.length ? evs : null;
+}
+
+function eventStrip(title, evs, withDates) {
+  return `<section class="event-strip">
+    <header>${esc(title)}</header>
+    <div class="es-items">${evs.map(e => `<button class="es-item" data-action="goto-event" data-ev="${e.id}" style="--ec:${setOf(e).color}">
+      <span class="es-emoji">${setOf(e).emoji}</span>
+      <span class="es-text"><b>${esc(e.t)}</b>${withDates ? `<span>${esc(fmtDate(e.d))}${e.time ? ' · ' + esc(fmtTime(e.time)) : ''}</span>` : e.k === 'holiday' ? '<span>Public holiday</span>' : `<span>${esc(setOf(e).name)}</span>`}</span>
+    </button>`).join('')}</div>
+  </section>`;
+}
+
 function renderList(vm) {
   const hasActive = vm.groups.some(g => g.tasks.length);
   let html = '';
+  if (vm.banner && vm.banner.length) html += eventStrip('Today', vm.banner, false);
+  if (vm.comingUp) html += eventStrip(`Coming up · ${setOf(vm.comingUp[0]).name}`, vm.comingUp, true);
   if (!hasActive && !vm.hideEmpty && vm.empty) {
     html += `<div class="empty">
       <div class="empty-art">${icon(vm.empty.icon)}</div>
@@ -1065,6 +1133,92 @@ function renderBoard(vm) {
   }).join('')}</div>`;
 }
 
+/* ---------- Event calendars: Indian festivals, Art of Living, NGO planning days ---------- */
+const EVENT_SETS = window.DOABLE_EVENT_SETS || {};
+const FESTIVALS = window.DOABLE_FESTIVALS || [];
+const eventYears = new Map();
+function eventsForYear(y) {
+  if (eventYears.has(y)) return eventYears.get(y);
+  const out = [];
+  const fest = FESTIVALS.filter(f => f.d.startsWith(y + '-'));
+  fest.forEach(f => out.push({ set: 'festivals', d: f.d, t: f.t, k: f.k, tentative: !!f.tentative }));
+  for (const [setId, set] of Object.entries(EVENT_SETS)) {
+    if (setId === 'festivals') continue;
+    const dated = (set.dated || []).filter(e => e.d.startsWith(y + '-'));
+    const datedDays = new Set(dated.map(e => e.d));
+    (set.annual || []).forEach(e => out.push({ set: setId, d: `${y}-${e.md}`, t: e.t, note: e.note, k: e.kind || 'event' }));
+    dated.forEach(e => out.push({ set: setId, d: e.d, t: e.t, note: e.note, time: e.time, k: e.kind || 'event' }));
+    (set.derive || []).forEach(r => fest.filter(f => r.match.test(f.t)).forEach(f => {
+      if (!(r.skipIfDated && datedDays.has(f.d))) out.push({ set: setId, d: f.d, t: r.t, note: r.note, k: 'event' });
+    }));
+    (set.rules || []).forEach(r => out.push({ set: setId, d: ymd(r.date(y)), t: r.t, note: r.note, k: 'event' }));
+  }
+  out.forEach((e, i) => { e.id = `${y}:${i}`; });
+  eventYears.set(y, out);
+  return out;
+}
+const findEvent = id => eventsForYear(+id.split(':')[0]).find(e => e.id === id);
+const setOf = e => EVENT_SETS[e.set] || { name: e.set, emoji: '•', color: '#888' };
+
+// Which event calendars this view shows: festivals everywhere, plus the space calendars in scope.
+function eventScope() {
+  const v = ui.view;
+  let spaces = SPACES;
+  if (v.type === 'list') spaces = SPACES.filter(s => s.id === (getList(v.id) || {}).space);
+  else if (v.type === 'smart' && v.id === 'calendar' && state.settings.calSpace !== 'all') spaces = SPACES.filter(s => s.id === state.settings.calSpace);
+  else if (v.type === 'tag' || ui.search || v.id === 'completed') return [];
+  return ['festivals', ...spaces.filter(s => s.events).map(s => s.events)];
+}
+const layerOn = id => (state.settings.calLayers || {})[id] !== false;
+function eventsByDate(from, to, sets = eventScope().filter(layerOn)) {
+  const map = {};
+  if (!sets.length) return map;
+  for (let y = +from.slice(0, 4); y <= +to.slice(0, 4); y++) {
+    for (const e of eventsForYear(y)) if (e.d >= from && e.d <= to && sets.includes(e.set)) (map[e.d] = map[e.d] || []).push(e);
+  }
+  const rank = e => (e.k === 'holiday' ? 0 : e.set === 'festivals' ? 1 : 2);
+  Object.values(map).forEach(a => a.sort((x, z) => rank(x) - rank(z) || (x.time || '').localeCompare(z.time || '')));
+  return map;
+}
+const evPill = e => `<span class="ev-pill ${e.k}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name)}">${setOf(e).emoji} ${esc(e.t)}</span>`;
+function dayEventsBlock(evs) {
+  if (!evs || !evs.length) return '';
+  return `<div class="day-events">${evs.map(e => {
+    const s = setOf(e);
+    const meta = [s.name, e.time && fmtTime(e.time), e.k === 'holiday' && 'Public holiday', e.k === 'deadline' && 'Deadline', e.tentative && 'Date may change'].filter(Boolean).join(' · ');
+    return `<div class="day-ev ${e.k}" style="--ec:${s.color}">
+      <span class="de-emoji" aria-hidden="true">${s.emoji}</span>
+      <div class="de-main"><b>${esc(e.t)}</b><span class="de-meta">${esc(meta)}</span>${e.note ? `<span class="de-note">${esc(e.note)}</span>` : ''}</div>
+      <button class="btn ghost sm" data-action="plan-event" data-ev="${e.id}" title="Create a task for this">${icon('plus')}<span>Plan</span></button>
+    </div>`;
+  }).join('')}</div>`;
+}
+function planEvent(id) {
+  const e = findEvent(id);
+  if (!e) return;
+  const v = ui.view;
+  const sp = SPACES.find(s => s.events === e.set);
+  let list = sp && spaceList(sp.id);
+  if (!list && v.type === 'list') list = getList(v.id);
+  if (!list && v.type === 'smart' && v.id === 'calendar' && state.settings.calSpace !== 'all') list = spaceList(state.settings.calSpace);
+  if (!list) list = getList(defaultListId());
+  const task = newTask({ title: e.t, listId: list.id, due: e.d, time: e.time || null, notes: e.note || '', order: edgeOrder(list.id, null, true) });
+  commit(() => { state.tasks.push(task); ui.flashId = task.id; });
+  toast(`Planned in ${list.name}`, { action: { label: 'Open', fn: () => openDetails(task.id) } });
+}
+
+function calendarFilters() {
+  const scope = eventScope();
+  const isCalView = ui.view.type === 'smart' && ui.view.id === 'calendar';
+  const cur = state.settings.calSpace || 'all';
+  const spaces = isCalView ? `<div class="cal-spaces" role="tablist" aria-label="Calendar">
+      <button class="space-chip ${cur === 'all' ? 'on' : ''}" data-action="cal-space" data-space="all">All</button>
+      ${SPACES.map(s => { const l = spaceList(s.id); return l ? `<button class="space-chip ${cur === s.id ? 'on' : ''}" data-action="cal-space" data-space="${s.id}" style="--c:${l.color}"><i></i>${esc(l.name)}</button>` : ''; }).join('')}
+    </div>` : '';
+  const layers = scope.length ? `<div class="cal-layers">${scope.map(id => { const s = EVENT_SETS[id] || {}; return `<button class="layer-chip ${layerOn(id) ? 'on' : ''}" data-action="cal-layer" data-layer="${id}" style="--ec:${s.color}" aria-pressed="${layerOn(id)}" title="Show ${esc(s.name || id)}">${s.emoji || ''} ${esc(s.short || s.name || id)}</button>`; }).join('')}</div>` : '';
+  return spaces || layers ? `<div class="cal-filters">${spaces}${layers}</div>` : '';
+}
+
 function renderCalendar(vm) {
   const m = ui.calMonth;
   const ws = state.settings.weekStart;
@@ -1074,6 +1228,7 @@ function renderCalendar(vm) {
   const byDate = {};
   (vm.calTasks || []).filter(t => t.due).forEach(t => { (byDate[t.due] = byDate[t.due] || []).push(t); });
   Object.values(byDate).forEach(a => a.sort((x, y) => (x.done - y.done) || (x.time || '99').localeCompare(y.time || '99') || prioRank(x.priority) - prioRank(y.priority)));
+  const evs = eventsByDate(ymd(start), ymd(addDays(start, 41)));
   const dayNames = [];
   for (let i = 0; i < 7; i++) dayNames.push(addDays(start, i).toLocaleDateString(LOCALE, { weekday: 'short' }));
   let cells = '';
@@ -1081,18 +1236,25 @@ function renderCalendar(vm) {
     const d = addDays(start, i);
     const ds = ymd(d);
     const items = byDate[ds] || [];
+    const dayEvs = evs[ds] || [];
     const outside = d.getMonth() !== m.getMonth();
-    cells += `<div class="cal-cell ${outside ? 'outside' : ''} ${ds === T ? 'is-today' : ''} ${ds === ui.calDay ? 'is-selected' : ''}" data-date="${ds}" role="gridcell" aria-label="${esc(d.toLocaleDateString(LOCALE, { dateStyle: 'full' }))}, ${plural(items.length, 'task')}">
-      <div class="cal-day"><span>${d.getDate()}</span>${items.filter(t => !t.done).length ? `<i class="cal-dot"></i>` : ''}</div>
+    const chips = [
+      ...dayEvs.map(e => `<div class="cal-ev ${e.k}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name + ': ' + e.t)}"><span class="ev-emo">${setOf(e).emoji} </span>${esc(e.t)}</div>`),
+      ...items.map(t => `<div class="cal-task ${t.done ? 'done' : ''}" style="--sc:${statusOf(t.status).color}" data-id="${t.id}" data-action="open" draggable="true" title="${esc(t.title)}">${t.time ? `<span class="cal-time">${esc(fmtTime(t.time))}</span>` : ''}${esc(t.title)}</div>`),
+    ];
+    const holiday = dayEvs.some(e => e.k === 'holiday');
+    cells += `<div class="cal-cell ${outside ? 'outside' : ''} ${ds === T ? 'is-today' : ''} ${ds === ui.calDay ? 'is-selected' : ''} ${holiday ? 'is-holiday' : ''}" data-date="${ds}" role="gridcell" aria-label="${esc(d.toLocaleDateString(LOCALE, { dateStyle: 'full' }))}, ${plural(items.length, 'task')}${dayEvs.length ? ', ' + esc(dayEvs.map(e => e.t).join(', ')) : ''}">
+      <div class="cal-day"><span>${d.getDate()}</span></div>
       <div class="cal-items">
-        ${items.slice(0, 3).map(t => `<div class="cal-task ${t.done ? 'done' : ''}" style="--sc:${statusOf(t.status).color}" data-id="${t.id}" data-action="open" draggable="true" title="${esc(t.title)}">${t.time ? `<span class="cal-time">${esc(fmtTime(t.time))}</span>` : ''}${esc(t.title)}</div>`).join('')}
-        ${items.length > 3 ? `<div class="cal-more">+${items.length - 3} more</div>` : ''}
+        ${chips.slice(0, 3).join('')}
+        ${chips.length > 3 ? `<div class="cal-more">+${chips.length - 3} more</div>` : ''}
       </div>
     </div>`;
   }
   const dayTasks = byDate[ui.calDay] || [];
   const unscheduled = (vm.calTasks || []).filter(t => !t.due && !t.done).length;
   return `
+    ${calendarFilters()}
     <div class="cal">
       <div class="cal-head">
         <h2>${esc(m.toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' }))}</h2>
@@ -1109,6 +1271,7 @@ function renderCalendar(vm) {
     </div>
     <section class="group cal-day-list">
       ${groupHead({ key: 'cal', title: fmtDate(ui.calDay), hint: fmtShort(ui.calDay), tasks: dayTasks }, { ...vm, showList: true }, false)}
+      ${dayEventsBlock(eventsByDate(ui.calDay, ui.calDay)[ui.calDay])}
       <div class="task-list">${dayTasks.map(t => taskRow(t, { ...vm, flat: false, showList: true })).join('')}</div>
       ${inlineAdd('cal:' + ui.calDay, { due: ui.calDay })}
       ${unscheduled ? `<p class="muted pad small">${plural(unscheduled, 'task')} without a date ${ui.view.type === 'list' ? 'in this list' : ''} — switch to List view to see them.</p>` : ''}
@@ -1913,6 +2076,24 @@ async function handleAction(a, el, id) {
     case 'cal-prev': ui.calMonth = addMonths(ui.calMonth, -1); renderMain(); break;
     case 'cal-next': ui.calMonth = addMonths(ui.calMonth, 1); renderMain(); break;
     case 'cal-today': ui.calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1); ui.calDay = todayStr(); renderMain(); break;
+    case 'cal-space': state.settings.calSpace = el.dataset.space; save(); renderMain(); break;
+    case 'cal-layer': {
+      const k = el.dataset.layer;
+      state.settings.calLayers = { ...(state.settings.calLayers || {}), [k]: !layerOn(k) };
+      save();
+      renderMain();
+      break;
+    }
+    case 'plan-event': planEvent(el.dataset.ev); break;
+    case 'goto-event': {
+      const e = findEvent(el.dataset.ev);
+      if (!e) break;
+      const d = parseYmd(e.d);
+      ui.calMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+      ui.calDay = e.d;
+      if (ui.vm.modes.includes('calendar')) setMode('calendar'); else navigate('smart:calendar');
+      break;
+    }
     case 'mode': setMode(el.dataset.mode); break;
     case 'sort':
       menuAt(el, [{ header: 'Sort by' }, ...SORTS.map(s => ({
@@ -2277,12 +2458,12 @@ function bindNative() {
 }
 
 /* ---------- Cloud sync ---------- */
-const SYNCED_SETTINGS = ['accent', 'weekStart', 'newOnTop', 'sort', 'group', 'defaultListId'];
+const SYNCED_SETTINGS = ['accent', 'weekStart', 'newOnTop', 'sort', 'group', 'defaultListId', 'calLayers', 'spacesInit'];
 
 // Local state as sync records: one per task and list, plus shared settings and stats.
 function syncRecords() {
   const m = new Map();
-  state.lists.forEach((l, i) => m.set('list:' + l.id, { kind: 'list', data: { id: l.id, name: l.name, color: l.color, pos: i } }));
+  state.lists.forEach((l, i) => m.set('list:' + l.id, { kind: 'list', data: { ...listFrom(l), pos: i } }));
   state.tasks.forEach(t => m.set('task:' + t.id, { kind: 'task', data: t }));
   const s = {};
   SYNCED_SETTINGS.forEach(k => { s[k] = state.settings[k] ?? null; });
@@ -2310,7 +2491,7 @@ function applyRemote(rows, replace = false) {
       const id = r.id.slice(5);
       const i = state.lists.findIndex(l => l.id === id);
       if (r.deleted) { if (i >= 0) { state.lists.splice(i, 1); changed = true; } continue; }
-      const l = { id, name: String(d.name || 'Untitled'), color: d.color || LIST_COLORS[0] };
+      const l = listFrom({ ...d, id });
       pos.set(id, typeof d.pos === 'number' ? d.pos : 1e9);
       if (i >= 0) state.lists[i] = l; else state.lists.push(l);
       changed = true;
@@ -2525,6 +2706,7 @@ if (authHash) {
   if (err) setTimeout(() => toast(err.replace(/\+/g, ' ')), 500);
 }
 applyTheme();
+if (ensureSpaces()) save();
 bindEvents();
 bindDetails();
 bindNative();
