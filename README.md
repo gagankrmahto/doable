@@ -1,0 +1,80 @@
+# Doable
+
+A friendly, fast task manager with a premium workspace feel: statuses, List / Board / Calendar views, table-style rows you can edit in place, and smart quick-add. It runs as a **website** (Chrome, Firefox, Edge, Safari) and an **Android app**, all **kept in sync** through your account. It works offline everywhere, and the web app needs no build step.
+
+**→ Hosting, sync and releases: see [SETUP.md](SETUP.md).**
+
+## Run it locally
+
+```bash
+node server.js
+```
+
+Then open http://localhost:4321. Without a Supabase project in `web/config.js`, Doable runs as a local-only app.
+
+## Features
+
+| | Google Tasks | Doable |
+|---|:-:|:-:|
+| Multiple lists, subtasks, due dates, star, notes | ✅ | ✅ |
+| **Statuses** (To Do → In Progress → Review → Complete) | | ✅ |
+| **Board (Kanban) view**: drag cards between statuses | | ✅ |
+| **Table-style list** with Due date / Priority / Status columns you can click to edit | | ✅ |
+| **Group by** status, priority, due date, or list, with inline **+ Add Task** in every group | | ✅ |
+| Large task window with status button, properties, description, and a subtask progress bar | | ✅ |
+| Bookmarkable views (e.g. `#list/Work/board`) | | ✅ |
+| Repeating tasks | ✅ | ✅ (daily, weekdays, every N days/weeks/months/years) |
+| **Natural-language quick add** with a live preview | | ✅ |
+| **Today** (includes overdue), **Upcoming** (7-day planner), **Starred**, **All**, **Completed** views | partial | ✅ |
+| **Calendar view** with drag-to-reschedule | | ✅ |
+| Priorities (Urgent/High/Normal/Low with flags), **#tags**, due **times** | | ✅ |
+| Reminders with desktop notifications | | ✅ |
+| Drag to reorder, drag onto a list or smart view in the sidebar | partial | ✅ |
+| Undo for everything (Ctrl+Z or the toast button) | partial | ✅ |
+| Right-click / long-press quick actions | | ✅ |
+| Full keyboard control | | ✅ |
+| Search across titles, notes, and tags | | ✅ |
+| Sort per view (my order, due date, priority, title, recent) | partial | ✅ |
+| Progress bar, daily done count, streaks, a celebration when Today is cleared | | ✅ |
+| **Sync across devices**: Chrome, Firefox, Android app (live, offline-first) | ✅ | ✅ |
+| **Native Android app** with reminders that fire even when it's closed | ✅ | ✅ |
+| Dark mode, accent colors, works on phones, installable, offline | partial | ✅ |
+| Export/import JSON backup | | ✅ |
+
+## Quick-add syntax
+
+Type naturally in the add box:
+
+- **Dates:** `today`, `tomorrow`, `fri`, `next week`, `in 3 days`, `dec 25`, `10/20`, `this weekend`
+- **Times:** `6pm`, `9:30`, `at 5`, `noon`, `tonight`
+- **Repeat:** `every day`, `every weekday`, `every monday`, `every 2 weeks`, `monthly`
+- **Priority:** `!1` urgent · `!2` high · `!3` normal · `!4` low (or `!!!` `!!` `!`)
+- **Tag:** `#errands` · **List:** `@work` · **Star:** `*`
+
+Example: `Pay rent every month !1 #home @personal`
+
+## Keyboard shortcuts
+
+Press `?` in the app to see all of them. The most useful ones:
+
+- `N` new task · `/` search · `J`/`K` move · `X` complete · `Enter` open
+- `S` star · `T` due today · `1`–`4` priority (urgent → low) · `[` / `]` previous / next status · `Tab` make subtask · `Del` delete
+- `V` cycles List → Board → Calendar · `G` then `T`/`U`/`S`/`A`/`C` jump to a view · `Ctrl+Z` undo
+
+## Project layout
+
+| Path | What it is |
+|---|---|
+| `web/` | The app itself: what GitHub Pages serves and what's packaged into the APK |
+| `web/app.js` | State, rendering, interactions, native Android glue |
+| `web/sync.js` | Offline-first sync engine and the Supabase connection |
+| `web/nlp.js` | Date helpers and the natural-language parser |
+| `web/config.js` | Your Supabase URL and public key (see SETUP.md) |
+| `web/vendor/` | Supabase and Capacitor browser bundles (refresh with `npm run vendor`) |
+| `android/` | Capacitor Android project |
+| `supabase/schema.sql` | Database table, security rules and live updates |
+| `.github/workflows/` | Deploy website · build and release APK · CI tests |
+| `test/sync.test.js` | Multi-device sync tests (`npm test`) |
+| `server.js` | A tiny local static server |
+
+Data is saved on each device under the `localStorage` key `doable:v1` and synced to your account when you're signed in.

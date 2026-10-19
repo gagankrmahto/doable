@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Secrets — never commit
+android/keystore.properties
+*.jks
+*.keystore
+*secrets*.txt
+.env*
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/.idea/
+android/app/release/
+*.apk
+*.aab
+
+# Copied into the app at build time by `cap sync` (source of truth is web/)
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# Editor / OS / local tooling
+.claude/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log

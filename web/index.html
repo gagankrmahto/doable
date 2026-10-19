@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Doable</title>
+  <meta name="description" content="A friendly, fast task manager that works offline.">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    // Apply saved theme before first paint to avoid a flash.
+    (function () {
+      try {
+        var s = (JSON.parse(localStorage.getItem('doable:v1') || '{}').settings) || {};
+        var t = s.theme || 'system';
+        if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+        if (s.accent) document.documentElement.style.setProperty('--accent', s.accent);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Navigation">
+      <div class="brand">
+        <span class="ws-avatar" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <div class="ws-text">
+          <span class="brand-name">Doable</span>
+          <span class="ws-sub">Personal workspace</span>
+        </div>
+      </div>
+      <label class="search">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search tasks">
+        <kbd>/</kbd>
+      </label>
+      <div class="sidebar-scroll">
+        <nav id="smartNav" class="nav" aria-label="Smart views"></nav>
+        <div class="nav-section">
+          <span>Lists</span>
+          <button class="icon-btn sm" data-action="add-list" title="New list" aria-label="New list">
+            <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+        <nav id="listNav" class="nav" aria-label="Lists"></nav>
+        <div id="tagSection" hidden>
+          <div class="nav-section"><span>Tags</span></div>
+          <nav id="tagNav" class="nav" aria-label="Tags"></nav>
+        </div>
+      </div>
+      <div class="sidebar-foot" id="sidebarFoot"></div>
+    </aside>
+    <div class="scrim" data-action="close-sidebar"></div>
+
+    <main class="main">
+      <header class="topbar" id="topbar"></header>
+      <div class="scroller" id="scroller">
+        <div class="content-wrap">
+          <form class="quick-add" id="quickAdd" autocomplete="off">
+            <button type="submit" class="qa-plus" aria-label="Add task">
+              <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <input id="qaInput" type="text" placeholder="Add a task" aria-label="Add a task" enterkeyhint="done">
+            <kbd class="qa-kbd">N</kbd>
+          </form>
+          <div class="qa-preview" id="qaPreview" aria-live="polite"></div>
+          <section id="content" class="content"></section>
+        </div>
+      </div>
+    </main>
+
+    <aside class="details" id="details" aria-label="Task details"></aside>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div id="modalRoot"></div>
+
+  <script src="config.js"></script>
+  <script src="vendor/capacitor.js"></script>
+  <script src="vendor/supabase.js"></script>
+  <script src="nlp.js"></script>
+  <script src="sync.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

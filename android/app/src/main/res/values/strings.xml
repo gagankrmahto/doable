@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Doable</string>
+    <string name="title_activity_main">Doable</string>
+    <string name="package_name">com.gaganmahto.doable</string>
+    <string name="custom_url_scheme">com.gaganmahto.doable</string>
+</resources>

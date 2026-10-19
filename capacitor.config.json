@@ -1,0 +1,18 @@
+{
+  "appId": "com.gaganmahto.doable",
+  "appName": "Doable",
+  "webDir": "web",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_doable",
+      "iconColor": "#7B68EE"
+    }
+  }
+}
