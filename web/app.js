@@ -70,6 +70,9 @@ const ICONS = {
   sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
   status: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  video: '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  hourglass: '<path d="M5 22h14M5 2h14M17 22v-4.17a2 2 0 0 0-.59-1.42L12 12l-4.41 4.41A2 2 0 0 0 7 17.83V22M7 2v4.17a2 2 0 0 0 .59 1.42L12 12l4.41-4.41A2 2 0 0 0 17 6.17V2"/>',
 };
 const icon = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
@@ -102,6 +105,7 @@ const SMART = [
 ];
 const REMINDERS = [
   { v: '', label: 'No reminder' }, { v: 0, label: 'At time of task' }, { v: 5, label: '5 minutes before' },
+  { v: 10, label: '10 minutes before' },
   { v: 15, label: '15 minutes before' }, { v: 30, label: '30 minutes before' }, { v: 60, label: '1 hour before' },
   { v: 1440, label: '1 day before' },
 ];
@@ -120,6 +124,7 @@ const QA_EXAMPLES = [
   'Standup every weekday 9:30am',
   'Dentist next friday at 3',
   'Buy milk tonight *',
+  'Standup 10am + paste a Meet link',
 ];
 
 /* ---------- State ---------- */
@@ -128,7 +133,67 @@ function newTask(o = {}) {
     id: uid(), listId: null, parentId: null, title: '', notes: '', due: null, time: null, priority: 0,
     status: 'todo', starred: false, tags: [], repeat: null, remind: null, myDay: null, done: false, doneAt: null,
     createdAt: Date.now(), order: 0, collapsed: false, notifiedFor: null,
+    type: 'task', link: null, duration: null, // meetings: call link + length in minutes
   }, o);
+}
+
+/* ---------- Meetings & call links ---------- */
+const CALL_PROVIDERS = [
+  { id: 'meet', name: 'Google Meet', color: '#00897b', re: /(^|\.)meet\.google\.com$/ },
+  { id: 'zoom', name: 'Zoom', color: '#2d8cff', re: /(^|\.)zoom\.(us|com)$/ },
+  { id: 'teams', name: 'Teams', color: '#5b5fc7', re: /(^|\.)teams\.(microsoft|live)\.com$/ },
+  { id: 'webex', name: 'Webex', color: '#00a0d1', re: /(^|\.)webex\.com$/ },
+  { id: 'jitsi', name: 'Jitsi', color: '#1d76ba', re: /(^|\.)meet\.jit\.si$/ },
+  { id: 'whatsapp', name: 'WhatsApp', color: '#25d366', re: /(^|\.)(call\.whatsapp\.com|chat\.whatsapp\.com|wa\.me)$/ },
+  { id: 'whereby', name: 'Whereby', color: '#6b4eff', re: /(^|\.)whereby\.com$/ },
+  { id: 'discord', name: 'Discord', color: '#5865f2', re: /(^|\.)discord\.(gg|com)$/ },
+  { id: 'skype', name: 'Skype', color: '#00aff0', re: /(^|\.)(join\.)?skype\.com$/ },
+];
+// Only http(s) links are ever opened; anything else (javascript:, data:…) is rejected.
+function safeUrl(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return null;
+  if (!/^[a-z][\w+.-]*:/i.test(s)) s = 'https://' + s;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    if (!u.hostname.includes('.')) return null;
+    return u.href;
+  } catch { return null; }
+}
+function callProvider(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return CALL_PROVIDERS.find(p => p.re.test(host)) || { id: 'link', name: 'call', color: '#7b68ee' };
+  } catch { return null; }
+}
+const isCallUrl = url => { const p = callProvider(url); return !!p && p.id !== 'link'; };
+const isMeeting = t => t.type === 'meeting';
+const meetingMinutes = t => t.duration || 30;
+// 'live' from 10 min before start until the end; 'soon' within the next 30 min.
+function meetingState(t, now = new Date()) {
+  if (!isMeeting(t) || t.done || !t.due || !t.time || t.due !== ymd(now)) return null;
+  const [h, m] = t.time.split(':').map(Number);
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
+  const end = start + meetingMinutes(t) * 60000;
+  const n = now.getTime();
+  if (n >= start - 10 * 60000 && n <= end) return { state: 'live', mins: Math.round((start - n) / 60000), start, end };
+  if (n < start && start - n <= 30 * 60000) return { state: 'soon', mins: Math.round((start - n) / 60000), start, end };
+  return null;
+}
+function openLink(url) {
+  const safe = safeUrl(url);
+  if (!safe) { toast('That link can’t be opened'); return; }
+  // In the Android app, navigating hands the link to Android, which opens the Meet/Zoom/Teams app.
+  if (isNative) window.location.href = safe;
+  else window.open(safe, '_blank', 'noopener,noreferrer');
+}
+function joinChip(t, compact) {
+  if (!t.link || t.done) return '';
+  const p = callProvider(t.link) || {};
+  const ms = meetingState(t);
+  const label = ms && ms.state === 'live' ? 'Join now' : 'Join';
+  return `<button class="join-chip ${ms ? ms.state : ''}" data-action="join" style="--pc:${p.color}" title="Join on ${esc(p.name)}: ${esc(t.link)}">${icon('video')}<span>${label}${compact ? '' : ` · ${esc(p.name === 'call' ? 'call' : p.name)}`}</span></button>`;
 }
 
 function defaultSettings() {
@@ -332,7 +397,12 @@ function fmtTime(t) {
   const [h, m] = t.split(':').map(Number);
   return new Date(2000, 0, 1, h, m).toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' });
 }
-const fmtDue = t => (t.due ? fmtDate(t.due) : '') + (t.time ? ` ${fmtTime(t.time)}` : '');
+function endTime(t) {
+  const [h, m] = t.time.split(':').map(Number);
+  const e = h * 60 + m + meetingMinutes(t);
+  return `${String(Math.floor(e / 60) % 24).padStart(2, '0')}:${String(e % 60).padStart(2, '0')}`;
+}
+const fmtDue = t => (t.due ? fmtDate(t.due) : '') + (t.time ? ` ${fmtTime(t.time)}${isMeeting(t) ? '–' + fmtTime(endTime(t)) : ''}` : '');
 function dueClass(t) {
   if (!t.due || t.done) return '';
   const T = todayStr();
@@ -526,6 +596,10 @@ function addTaskFromText(text, extra = {}) {
     repeat: p.repeat,
     order: edgeOrder(listId, null, state.settings.newOnTop),
   });
+  // A pasted call link makes it a meeting; any other link goes into the notes.
+  const url = p.url && safeUrl(p.url);
+  if (url && isCallUrl(url)) Object.assign(task, { type: 'meeting', link: url, duration: 30, remind: task.time ? 10 : null });
+  else if (url) task.notes = url;
   commit(() => { state.tasks.push(task); ui.flashId = task.id; });
   if (!ui.visibleIds.includes(task.id)) {
     const where = [getList(listId).name, task.due && fmtDate(task.due)].filter(Boolean).join(' · ');
@@ -719,7 +793,7 @@ function viewModel() {
       const total = active.length + completed.length;
       return {
         title: 'Today', icon: 'sun', showList: true, groups, completed, modes: ['list', 'board', 'calendar'], boardTasks: [...active, ...completed],
-        calTasks: top.filter(t => t.due), banner: eventsByDate(T, T)[T],
+        calTasks: top.filter(t => t.due), banner: eventsByDate(T, T)[T], upNext: upNextMeetings(),
         subtitle: new Date().toLocaleDateString(LOCALE, { weekday: 'long', month: 'long', day: 'numeric' }),
         progress: total ? { done: completed.length, total } : null,
         empty: completed.length
@@ -999,9 +1073,27 @@ function eventStrip(title, evs, withDates) {
   </section>`;
 }
 
+// Meetings that are about to start or happening now, soonest first.
+function upNextMeetings() {
+  const now = new Date();
+  return state.tasks.map(t => ({ t, ms: meetingState(t, now) })).filter(x => x.ms).sort((a, b) => a.ms.start - b.ms.start);
+}
+function upNextBanner(list) {
+  return list.map(({ t, ms }) => {
+    const prov = t.link ? callProvider(t.link) : null;
+    const status = ms.state === 'live' ? (ms.mins > 0 ? `Starts in ${ms.mins} min` : 'Happening now') : `Starts in ${ms.mins} min`;
+    return `<div class="up-next ${ms.state}" data-id="${t.id}" style="--pc:${prov ? prov.color : 'var(--accent)'}">
+      <span class="un-ico">${icon('video')}</span>
+      <div class="un-main" data-action="open"><b>${esc(t.title || 'Meeting')}</b><span>${esc(status)} · ${esc(fmtTime(t.time))}–${esc(fmtTime(endTime(t)))}${prov && prov.id !== 'link' ? ' · ' + esc(prov.name) : ''}</span></div>
+      ${t.link ? `<button class="btn primary sm" data-action="join">${icon('video')}${ms.state === 'live' ? 'Join now' : 'Join'}</button>` : `<button class="btn ghost sm" data-action="open">Add link</button>`}
+    </div>`;
+  }).join('');
+}
+
 function renderList(vm) {
   const hasActive = vm.groups.some(g => g.tasks.length);
   let html = '';
+  if (vm.upNext && vm.upNext.length) html += upNextBanner(vm.upNext);
   if (vm.banner && vm.banner.length) html += eventStrip('Today', vm.banner, false);
   if (vm.comingUp) html += eventStrip(`Coming up · ${setOf(vm.comingUp[0]).name}`, vm.comingUp, true);
   if (!hasActive && !vm.hideEmpty && vm.empty) {
@@ -1059,6 +1151,8 @@ function taskRow(t, vm, depth = 0) {
     const p = getTask(t.parentId);
     if (p) meta.push(`<span class="chip muted">↳ ${esc(trunc(p.title, 28))}</span>`);
   }
+  if (t.link && !t.done) meta.push(joinChip(t));
+  else if (isMeeting(t)) meta.push(`<span class="chip">${icon('video')}Meeting</span>`);
   if (kids.length) meta.push(`<button class="chip sub-count ${doneKids === kids.length ? 'ok' : ''}" data-action="collapse" title="${t.collapsed ? 'Show' : 'Hide'} subtasks">${icon('subtasks')}${doneKids}/${kids.length}</button>`);
   if (!t.due && t.myDay === T && !t.done) meta.push(`<span class="chip today">${icon('sun')}My Day</span>`);
   if (t.notes.trim()) meta.push(`<span class="chip" title="${esc(trunc(t.notes, 120))}">${icon('note')}</span>`);
@@ -1097,6 +1191,7 @@ function card(t) {
   const meta = [];
   if (t.due) meta.push(`<span class="chip due ${dueClass(t)}">${icon(t.time ? 'clock' : 'calendar')}${esc(fmtDue(t))}</span>`);
   if (t.priority) meta.push(`<span class="chip" style="color:${p.color}">${icon('flagFill')}${p.label}</span>`);
+  if (t.link && !t.done) meta.unshift(joinChip(t, true));
   if (kids.length) meta.push(`<span class="chip ${doneKids === kids.length ? 'ok' : ''}">${icon('subtasks')}${doneKids}/${kids.length}</span>`);
   if (t.repeat) meta.push(`<span class="chip" title="${esc(repeatLabel(t.repeat))}">${icon('repeat')}</span>`);
   if (t.notes.trim()) meta.push(`<span class="chip">${icon('note')}</span>`);
@@ -1240,7 +1335,7 @@ function renderCalendar(vm) {
     const outside = d.getMonth() !== m.getMonth();
     const chips = [
       ...dayEvs.map(e => `<div class="cal-ev ${e.k}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name + ': ' + e.t)}"><span class="ev-emo">${setOf(e).emoji} </span>${esc(e.t)}</div>`),
-      ...items.map(t => `<div class="cal-task ${t.done ? 'done' : ''}" style="--sc:${statusOf(t.status).color}" data-id="${t.id}" data-action="open" draggable="true" title="${esc(t.title)}">${t.time ? `<span class="cal-time">${esc(fmtTime(t.time))}</span>` : ''}${esc(t.title)}</div>`),
+      ...items.map(t => `<div class="cal-task ${t.done ? 'done' : ''} ${isMeeting(t) ? 'meeting' : ''}" style="--sc:${statusOf(t.status).color}" data-id="${t.id}" data-action="open" draggable="true" title="${esc(t.title)}${t.link ? ' · ' + esc((callProvider(t.link) || {}).name || '') : ''}">${isMeeting(t) ? icon('video', 'cal-vid') : ''}${t.time ? `<span class="cal-time">${esc(fmtTime(t.time))}</span>` : ''}${esc(t.title)}</div>`),
     ];
     const holiday = dayEvs.some(e => e.k === 'holiday');
     cells += `<div class="cal-cell ${outside ? 'outside' : ''} ${ds === T ? 'is-today' : ''} ${ds === ui.calDay ? 'is-selected' : ''} ${holiday ? 'is-holiday' : ''}" data-date="${ds}" role="gridcell" aria-label="${esc(d.toLocaleDateString(LOCALE, { dateStyle: 'full' }))}, ${plural(items.length, 'task')}${dayEvs.length ? ', ' + esc(dayEvs.map(e => e.t).join(', ')) : ''}">
@@ -1296,6 +1391,13 @@ function renderQaPreview() {
   const due = p.due || d.due;
   if (due) chips.push(`<span class="pchip ${p.due ? 'hit' : ''}">${icon('calendar')}${esc(fmtDate(due))}${p.time ? ' · ' + esc(fmtTime(p.time)) : ''}</span>`);
   if (p.repeat) chips.push(`<span class="pchip hit">${icon('repeat')}${esc(repeatLabel(p.repeat))}</span>`);
+  if (p.url) {
+    const u = safeUrl(p.url);
+    const prov = u && isCallUrl(u) ? callProvider(u) : null;
+    chips.push(prov
+      ? `<span class="pchip hit" style="--pc:${prov.color}">${icon('video')}${esc(prov.name)} meeting</span>`
+      : `<span class="pchip">${icon('link')}Link saved to notes</span>`);
+  }
   if (p.priority) chips.push(`<span class="pchip hit" style="--pc:${prioOf(p.priority).color}">${icon('flagFill')}${prioOf(p.priority).label}</span>`);
   if (p.starred || d.starred) chips.push(`<span class="pchip ${p.starred ? 'hit' : ''}">${icon('starFill')}Starred</span>`);
   [...new Set([...(d.tags || []), ...p.tags])].forEach(g => chips.push(`<span class="pchip ${p.tags.includes(g) ? 'hit' : ''}">#${esc(g)}</span>`));
@@ -1355,8 +1457,13 @@ function renderDetails() {
           </div>
           ${t.repeat ? `<span class="soft-chip">${icon('repeat')}${esc(repeatLabel(t.repeat))}</span>` : ''}
           ${t.done && t.doneAt ? `<span class="soft-chip ok">${icon('checkCircle')}Done ${esc(fmtDate(ymd(new Date(t.doneAt)), false))}</span>` : ''}
+          ${!t.parentId ? `<div class="seg type-seg" role="radiogroup" aria-label="Type">
+            <button class="${!isMeeting(t) ? 'on' : ''}" data-d="type" data-v="task" role="radio" aria-checked="${!isMeeting(t)}">${icon('checkCircle')}Task</button>
+            <button class="${isMeeting(t) ? 'on' : ''}" data-d="type" data-v="meeting" role="radio" aria-checked="${isMeeting(t)}">${icon('video')}Meeting</button>
+          </div>` : ''}
         </div>
-        <textarea class="d-title ${t.done ? 'done' : ''}" rows="1" data-field="title" placeholder="Task name" aria-label="Task name">${esc(t.title)}</textarea>
+        <textarea class="d-title ${t.done ? 'done' : ''}" rows="1" data-field="title" placeholder="${isMeeting(t) ? 'Meeting name' : 'Task name'}" aria-label="${isMeeting(t) ? 'Meeting name' : 'Task name'}">${esc(t.title)}</textarea>
+        ${isMeeting(t) ? meetingBox(t) : ''}
 
         <div class="props">
           <div class="prop">
@@ -1444,6 +1551,29 @@ function renderDetails() {
   const body = $('.dm-body', el);
   if (body) body.scrollTop = keepScroll;
 }
+function meetingBox(t) {
+  const prov = t.link ? callProvider(t.link) : null;
+  const ms = meetingState(t);
+  const when = t.due && t.time ? `${fmtDate(t.due)} · ${fmtTime(t.time)}–${fmtTime(endTime(t))}` : t.due ? fmtDate(t.due) : 'Set a date and time below';
+  const status = ms ? (ms.state === 'live' ? (ms.mins > 0 ? `Starts in ${ms.mins} min` : 'Happening now') : `Starts in ${ms.mins} min`) : '';
+  return `<div class="meet-box ${ms ? ms.state : ''}" style="--pc:${prov ? prov.color : 'var(--accent)'}">
+    <div class="mb-head">
+      <span class="mb-ico">${icon('video')}</span>
+      <div class="mb-title"><b>${prov && prov.id !== 'link' ? esc(prov.name) + ' meeting' : 'Meeting'}</b><span>${esc(when)}${status ? ` · <em>${esc(status)}</em>` : ''}</span></div>
+      ${t.link ? `<button class="btn primary sm mb-join" data-d="join">${icon('video')}${ms && ms.state === 'live' ? 'Join now' : 'Join'}</button>` : ''}
+    </div>
+    <div class="mb-row">
+      ${icon('link', 'mb-link-ico')}
+      <input class="mb-link" type="url" inputmode="url" data-field="link" value="${esc(t.link || '')}" placeholder="Paste a Google Meet, Zoom or Teams link" autocomplete="off" spellcheck="false" aria-label="Call link">
+      ${t.link ? `<button class="icon-btn sm" data-d="copy-link" title="Copy link" aria-label="Copy link">${icon('copy')}</button>` : ''}
+    </div>
+    <div class="mb-row">
+      ${icon('hourglass', 'mb-link-ico')}
+      <span class="mb-label">Duration</span>
+      <select data-field="duration" aria-label="Duration">${[15, 30, 45, 60, 90, 120, 180].map(m => `<option value="${m}" ${meetingMinutes(t) === m ? 'selected' : ''}>${m < 60 ? m + ' min' : m / 60 + (m === 60 ? ' hour' : ' hours')}</option>`).join('')}</select>
+    </div>
+  </div>`;
+}
 function autosize(el) {
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 2 + 'px';
@@ -1453,6 +1583,8 @@ let editSnap = false;
 function bindDetails() {
   const det = $('#details');
   det.addEventListener('focusin', () => { editSnap = false; });
+  // A pasted meeting link saves right away (blur fires "change")
+  det.addEventListener('paste', e => { if (e.target.matches('.mb-link')) setTimeout(() => e.target.blur(), 0); });
   det.addEventListener('click', e => {
     const b = e.target.closest('[data-d]');
     if (!b) return;
@@ -1465,6 +1597,21 @@ function bindDetails() {
       case 'star': toggleStar(t.id); break;
       case 'status-menu': menuAt(b, statusMenuItems(t.id), false); break;
       case 'prio-menu': menuAt(b, prioMenuItems(t.id), false); break;
+      case 'type': {
+        const v = b.dataset.v;
+        if (t.type === v) break;
+        commit(() => {
+          t.type = v;
+          if (v === 'meeting' && !t.duration) t.duration = 30;
+          if (v === 'meeting' && t.time && t.remind == null) t.remind = 10;
+        });
+        if (v === 'meeting') setTimeout(() => $('.mb-link', det)?.focus(), 0);
+        break;
+      }
+      case 'join': openLink(t.link); break;
+      case 'copy-link':
+        navigator.clipboard?.writeText(t.link).then(() => toast('Link copied'), () => toast('Couldn’t copy — select the link and copy it'));
+        break;
       case 'due': {
         const v = b.dataset.v;
         setDue(t.id, v === 'clear' ? null : v === 'nextweek' ? nextWeekStr() : ymd(addDays(new Date(), +v)));
@@ -1513,6 +1660,14 @@ function bindDetails() {
       }); break;
       case 'repeatInterval': commit(() => { if (t.repeat) t.repeat.interval = clamp(parseInt(v, 10) || 1, 1, 99); }); break;
       case 'remind': commit(() => { t.remind = v === '' ? null : +v; t.notifiedFor = null; }); if (v !== '') askNotifyPermission(); break;
+      case 'link': {
+        if (!v.trim()) { commit(() => { t.link = null; }); break; }
+        const u = safeUrl(v);
+        if (!u) { toast('That doesn’t look like a link — paste the full meeting URL'); renderDetails(); break; }
+        commit(() => { t.link = u; t.type = 'meeting'; if (!t.duration) t.duration = 30; });
+        break;
+      }
+      case 'duration': commit(() => { t.duration = +v || 30; }); break;
     }
   });
   det.addEventListener('keydown', e => {
@@ -1533,6 +1688,9 @@ function bindDetails() {
       e.preventDefault();
       const v = e.target.value.trim();
       if (v) { addSubtask(t, v); $('.d-sub-add', det)?.focus(); }
+    } else if (e.target.dataset.field === 'link' && e.key === 'Enter') {
+      e.preventDefault();
+      e.target.blur();
     } else if (e.target.dataset.field === 'title' && e.key === 'Enter') {
       e.preventDefault();
       e.target.blur();
@@ -1844,7 +2002,7 @@ function openShortcuts() {
   const syntax = [
     ['tomorrow, fri, next week, in 3 days, dec 25', 'Due date'], ['6pm, 9:30, at 5, tonight', 'Time'],
     ['every day, every weekday, every 2 weeks, monthly', 'Repeat'], ['!1 urgent · !2 high · !3 normal · !4 low', 'Priority'],
-    ['#errands', 'Tag'], ['@work', 'List'], ['*', 'Star'],
+    ['#errands', 'Tag'], ['@work', 'List'], ['*', 'Star'], ['paste a Meet / Zoom / Teams link', 'Meeting + Join button'],
   ];
   openModal(`
     <div class="modal-card wide">
@@ -1994,7 +2152,8 @@ function checkReminders() {
   if (ui.lastDay !== todayStr()) { ui.lastDay = todayStr(); render(); }
 }
 function notify(t) {
-  const body = `${t.time ? fmtTime(t.time) : fmtDate(t.due)}${getList(t.listId) ? ' · ' + getList(t.listId).name : ''}`;
+  const prov = t.link && !t.done ? callProvider(t.link) : null;
+  const body = `${t.time ? fmtTime(t.time) : fmtDate(t.due)}${getList(t.listId) ? ' · ' + getList(t.listId).name : ''}${prov ? ` · Join on ${prov.name === 'call' ? 'the call link' : prov.name}` : ''}`;
   toast(`⏰ ${trunc(t.title, 50)} — ${body}`, { duration: 12000, action: { label: 'Open', fn: () => openDetails(t.id) } });
   if ('Notification' in window && Notification.permission === 'granted') {
     const opts = { body, icon: 'icon.svg', tag: t.id };
@@ -2085,6 +2244,7 @@ async function handleAction(a, el, id) {
       break;
     }
     case 'plan-event': planEvent(el.dataset.ev); break;
+    case 'join': { const t = getTask(id); if (t && t.link) openLink(t.link); break; }
     case 'goto-event': {
       const e = findEvent(el.dataset.ev);
       if (!e) break;
@@ -2388,6 +2548,18 @@ function bindEvents() {
 
   setInterval(checkReminders, 20000);
   addEventListener('focus', checkReminders);
+
+  // Keep "Starts in N min" / "Join now" current without interrupting typing
+  let meetSig = '';
+  setInterval(() => {
+    const sig = upNextMeetings().map(({ t, ms }) => t.id + ms.state + ms.mins).join('|');
+    if (sig === meetSig) return;
+    meetSig = sig;
+    const ae = document.activeElement;
+    if (ae && ae.matches('input, textarea, select')) return;
+    renderMain();
+    if (ui.openId) renderDetails();
+  }, 30000);
 }
 
 /* ---------- Native app (Android via Capacitor) ---------- */
@@ -2423,7 +2595,7 @@ function scheduleNativeReminders() {
       const list = upcoming.slice(0, 60).map(({ t, fire }) => ({
         id: notifId(t.id),
         title: t.title || 'Task reminder',
-        body: [t.time ? fmtTime(t.time) : fmtDate(t.due), getList(t.listId) && getList(t.listId).name].filter(Boolean).join(' · '),
+        body: [t.time ? fmtTime(t.time) : fmtDate(t.due), getList(t.listId) && getList(t.listId).name, t.link && `Tap to join on ${(callProvider(t.link) || {}).name || 'the call'}`].filter(Boolean).join(' · '),
         schedule: { at: new Date(fire), allowWhileIdle: true },
         extra: { taskId: t.id },
       }));
@@ -2452,7 +2624,10 @@ function bindNative() {
   native.App.addListener('resume', () => { checkReminders(); if (window.DoableSync) DoableSync.syncNow(); });
   native.Notifications.addListener('localNotificationActionPerformed', ev => {
     const id = ev && ev.notification && ev.notification.extra && ev.notification.extra.taskId;
-    if (id && getTask(id)) openDetails(id);
+    const t = id && getTask(id);
+    if (!t) return;
+    openDetails(id);
+    if (t.link && !t.done) openLink(t.link); // "Tap to join"
   });
   scheduleNativeReminders();
 }

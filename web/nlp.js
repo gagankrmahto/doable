@@ -42,7 +42,7 @@
     const lists = opts.lists || [];
     const monthFirst = opts.monthFirst ?? true;
     let text = ` ${input} `;
-    const r = { title: '', due: null, time: null, priority: 0, tags: [], listId: null, repeat: null, starred: false };
+    const r = { title: '', due: null, time: null, priority: 0, tags: [], listId: null, repeat: null, starred: false, url: null };
 
     // Run regex; if fn doesn't return false, cut the match out of the text.
     const take = (re, fn) => {
@@ -52,6 +52,13 @@
       return true;
     };
     const setDue = d => { r.due = ymd(d); };
+
+    // Links first, so digits inside a Zoom/Meet URL are never read as dates or times
+    take(/\s((?:https?:\/\/|(?:meet\.google\.com|zoom\.us|[\w-]+\.zoom\.us|teams\.microsoft\.com|teams\.live\.com)\/)[^\s<>"]+)/i, m => {
+      let u = m[1].replace(/[),.;!?]+$/, '');
+      if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+      r.url = u;
+    });
 
     // Tags (#tag), list (@list), priority (!1 / !!! / p1), star (*)
     let guard = 0;
