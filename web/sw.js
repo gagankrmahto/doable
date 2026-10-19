@@ -1,7 +1,7 @@
 /* Doable service worker — network-first with offline fallback. */
-const CACHE = 'doable-v4';
+const CACHE = 'doable-v5';
 const ASSETS = [
-  './', './index.html', './styles.css', './app.js', './nlp.js', './sync.js', './config.js',
+  './', './index.html', './styles.css', './app.js', './nlp.js', './sync.js', './config.js', './moon.js',
   './data/festivals.js', './data/calendars.js',
   './vendor/supabase.js', './vendor/capacitor.js', './manifest.webmanifest', './icon.svg',
   './icons/icon-192.png', './icons/icon-512.png',

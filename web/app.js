@@ -207,8 +207,8 @@ function defaultSettings() {
 const SPACES = [
   { id: 'personal', name: 'Personal', color: '#30a46c', aliases: ['personal'] },
   { id: 'work', name: 'Work', color: '#0090ff', aliases: ['work'] },
-  { id: 'aol', name: 'Art of Living', color: '#f76b15', events: 'aol', aliases: ['art of living', 'aol'] },
-  { id: 'ngo', name: 'NexJyoti NGO', color: '#12a594', events: 'ngo', aliases: ['nexjyoti ngo', 'nexjyoti', 'ngo'] },
+  { id: 'aol', name: 'Art of Living', color: '#f76b15', events: ['aol', 'moon'], aliases: ['art of living', 'aol'] },
+  { id: 'ngo', name: 'NexJyoti NGO', color: '#12a594', events: ['ngo'], aliases: ['nexjyoti ngo', 'nexjyoti', 'ngo'] },
 ];
 const listFrom = l => {
   const out = { id: String(l.id), name: String(l.name || 'Untitled'), color: l.color || LIST_COLORS[0] };
@@ -902,7 +902,7 @@ function renderSidebar() {
   const listRow = l => {
     const n = active.filter(t => t.listId === l.id).length;
     const sp = spaceOf(l);
-    const set = sp && sp.events && EVENT_SETS[sp.events];
+    const set = sp && sp.events && EVENT_SETS[sp.events[0]];
     return `
     <div class="nav-row">
       <button class="nav-item ${cur === 'list:' + l.id ? 'active' : ''}" data-nav="list:${l.id}" data-drop-list="${l.id}">
@@ -1056,9 +1056,10 @@ function groupHead(g, vm, collapsed, extraCls = '') {
 // Next few events from a space's own calendar (e.g. Art of Living), shown at the top of that list.
 function upcomingSpaceEvents(list) {
   const sp = spaceOf(list);
-  if (!sp || !sp.events || !layerOn(sp.events)) return null;
+  const sets = sp && sp.events ? sp.events.filter(layerOn) : [];
+  if (!sets.length) return null;
   const T = todayStr();
-  const map = eventsByDate(T, ymd(addDays(new Date(), 60)), [sp.events]);
+  const map = eventsByDate(T, ymd(addDays(new Date(), 60)), sets);
   const evs = Object.keys(map).sort().flatMap(d => map[d]).slice(0, 4);
   return evs.length ? evs : null;
 }
@@ -1067,7 +1068,7 @@ function eventStrip(title, evs, withDates) {
   return `<section class="event-strip">
     <header>${esc(title)}</header>
     <div class="es-items">${evs.map(e => `<button class="es-item" data-action="goto-event" data-ev="${e.id}" style="--ec:${setOf(e).color}">
-      <span class="es-emoji">${setOf(e).emoji}</span>
+      <span class="es-emoji">${emojiOf(e)}</span>
       <span class="es-text"><b>${esc(e.t)}</b>${withDates ? `<span>${esc(fmtDate(e.d))}${e.time ? ' · ' + esc(fmtTime(e.time)) : ''}</span>` : e.k === 'holiday' ? '<span>Public holiday</span>' : `<span>${esc(setOf(e).name)}</span>`}</span>
     </button>`).join('')}</div>
   </section>`;
@@ -1236,9 +1237,27 @@ function eventsForYear(y) {
   if (eventYears.has(y)) return eventYears.get(y);
   const out = [];
   const fest = FESTIVALS.filter(f => f.d.startsWith(y + '-'));
-  fest.forEach(f => out.push({ set: 'festivals', d: f.d, t: f.t, k: f.k, tentative: !!f.tentative }));
+  const sacredRe = EVENT_SETS.aol && EVENT_SETS.aol.sacred;
+  fest.forEach(f => out.push({ set: 'festivals', d: f.d, t: f.t, k: f.k, tentative: !!f.tentative, sacred: !!(sacredRe && sacredRe.test(f.t)) }));
   for (const [setId, set] of Object.entries(EVENT_SETS)) {
     if (setId === 'festivals') continue;
+    if (set.moonPhases && window.MoonPhases) {
+      const nearFest = (re, d, offset = 0) => fest.find(f => re.test(f.t) && f.d === ymd(addDays(parseYmd(d), offset)));
+      const aolPurnimaDays = new Set(((EVENT_SETS.aol || {}).dated || []).filter(e => /Purnima/.test(e.t)).map(e => e.d));
+      for (const p of MoonPhases.phases(y)) {
+        const base = set[p.type];
+        const named = (set.names || []).find(n => n.type === p.type && nearFest(n.match, p.d, n.offset || 0));
+        // Guru Purnima is already on the Art of Living calendar; the day is still marked as a full moon
+        if (p.type === 'full' && aolPurnimaDays.has(p.d) && !named) { out.push({ set: setId, d: p.d, t: 'Full moon', k: 'moon-full', hidden: true, istTime: p.istTime }); continue; }
+        const timeTxt = fmtTime(p.istTime) + (p.istDate !== p.d ? ` on ${fmtShort(p.istDate)}` : '');
+        out.push({
+          set: setId, d: p.d, k: p.type === 'full' ? 'moon-full' : 'moon-new', emoji: p.type === 'full' ? '🌕' : '🌑',
+          t: named ? named.t : base.t, istTime: p.istTime,
+          note: (named && named.note ? named.note + ' ' : '') + base.note.replace('{time}', timeTxt),
+        });
+      }
+      continue;
+    }
     const dated = (set.dated || []).filter(e => e.d.startsWith(y + '-'));
     const datedDays = new Set(dated.map(e => e.d));
     (set.annual || []).forEach(e => out.push({ set: setId, d: `${y}-${e.md}`, t: e.t, note: e.note, k: e.kind || 'event' }));
@@ -1254,6 +1273,18 @@ function eventsForYear(y) {
 }
 const findEvent = id => eventsForYear(+id.split(':')[0]).find(e => e.id === id);
 const setOf = e => EVENT_SETS[e.set] || { name: e.set, emoji: '•', color: '#888' };
+const emojiOf = e => e.emoji || setOf(e).emoji;
+// Moon phase per day for highlighting cells (includes days whose moon event is merged into another event)
+function moonDays(from, to) {
+  const map = {};
+  if (!eventScope().includes('moon') || !layerOn('moon')) return map;
+  for (let y = +from.slice(0, 4); y <= +to.slice(0, 4); y++) {
+    for (const e of eventsForYear(y)) if (e.set === 'moon' && e.d >= from && e.d <= to) map[e.d] = e.k;
+  }
+  return map;
+}
+// Sacred festivals are highlighted wherever the Art of Living calendar is in view
+const sacredOn = () => eventScope().includes('aol') && layerOn('aol');
 
 // Which event calendars this view shows: festivals everywhere, plus the space calendars in scope.
 function eventScope() {
@@ -1262,27 +1293,28 @@ function eventScope() {
   if (v.type === 'list') spaces = SPACES.filter(s => s.id === (getList(v.id) || {}).space);
   else if (v.type === 'smart' && v.id === 'calendar' && state.settings.calSpace !== 'all') spaces = SPACES.filter(s => s.id === state.settings.calSpace);
   else if (v.type === 'tag' || ui.search || v.id === 'completed') return [];
-  return ['festivals', ...spaces.filter(s => s.events).map(s => s.events)];
+  return ['festivals', ...spaces.flatMap(s => s.events || [])];
 }
 const layerOn = id => (state.settings.calLayers || {})[id] !== false;
 function eventsByDate(from, to, sets = eventScope().filter(layerOn)) {
   const map = {};
   if (!sets.length) return map;
   for (let y = +from.slice(0, 4); y <= +to.slice(0, 4); y++) {
-    for (const e of eventsForYear(y)) if (e.d >= from && e.d <= to && sets.includes(e.set)) (map[e.d] = map[e.d] || []).push(e);
+    for (const e of eventsForYear(y)) if (!e.hidden && e.d >= from && e.d <= to && sets.includes(e.set)) (map[e.d] = map[e.d] || []).push(e);
   }
-  const rank = e => (e.k === 'holiday' ? 0 : e.set === 'festivals' ? 1 : 2);
+  const rank = e => (e.k === 'holiday' ? 0 : e.k.startsWith('moon') ? 1 : e.set === 'festivals' ? 2 : 3);
   Object.values(map).forEach(a => a.sort((x, z) => rank(x) - rank(z) || (x.time || '').localeCompare(z.time || '')));
   return map;
 }
-const evPill = e => `<span class="ev-pill ${e.k}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name)}">${setOf(e).emoji} ${esc(e.t)}</span>`;
+const evPill = e => `<span class="ev-pill ${e.k} ${e.sacred && sacredOn() ? 'sacred' : ''}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name)}">${emojiOf(e)} ${esc(e.t)}</span>`;
 function dayEventsBlock(evs) {
   if (!evs || !evs.length) return '';
   return `<div class="day-events">${evs.map(e => {
     const s = setOf(e);
-    const meta = [s.name, e.time && fmtTime(e.time), e.k === 'holiday' && 'Public holiday', e.k === 'deadline' && 'Deadline', e.tentative && 'Date may change'].filter(Boolean).join(' · ');
-    return `<div class="day-ev ${e.k}" style="--ec:${s.color}">
-      <span class="de-emoji" aria-hidden="true">${s.emoji}</span>
+    const sacred = e.sacred && sacredOn();
+    const meta = [s.name, sacred && 'Sacred day', e.time && fmtTime(e.time), e.k === 'holiday' && 'Public holiday', e.k === 'deadline' && 'Deadline', e.tentative && 'Date may change'].filter(Boolean).join(' · ');
+    return `<div class="day-ev ${e.k} ${sacred ? 'sacred' : ''}" style="--ec:${s.color}">
+      <span class="de-emoji" aria-hidden="true">${emojiOf(e)}</span>
       <div class="de-main"><b>${esc(e.t)}</b><span class="de-meta">${esc(meta)}</span>${e.note ? `<span class="de-note">${esc(e.note)}</span>` : ''}</div>
       <button class="btn ghost sm" data-action="plan-event" data-ev="${e.id}" title="Create a task for this">${icon('plus')}<span>Plan</span></button>
     </div>`;
@@ -1292,7 +1324,7 @@ function planEvent(id) {
   const e = findEvent(id);
   if (!e) return;
   const v = ui.view;
-  const sp = SPACES.find(s => s.events === e.set);
+  const sp = SPACES.find(s => (s.events || []).includes(e.set));
   let list = sp && spaceList(sp.id);
   if (!list && v.type === 'list') list = getList(v.id);
   if (!list && v.type === 'smart' && v.id === 'calendar' && state.settings.calSpace !== 'all') list = spaceList(state.settings.calSpace);
@@ -1311,7 +1343,10 @@ function calendarFilters() {
       ${SPACES.map(s => { const l = spaceList(s.id); return l ? `<button class="space-chip ${cur === s.id ? 'on' : ''}" data-action="cal-space" data-space="${s.id}" style="--c:${l.color}"><i></i>${esc(l.name)}</button>` : ''; }).join('')}
     </div>` : '';
   const layers = scope.length ? `<div class="cal-layers">${scope.map(id => { const s = EVENT_SETS[id] || {}; return `<button class="layer-chip ${layerOn(id) ? 'on' : ''}" data-action="cal-layer" data-layer="${id}" style="--ec:${s.color}" aria-pressed="${layerOn(id)}" title="Show ${esc(s.name || id)}">${s.emoji || ''} ${esc(s.short || s.name || id)}</button>`; }).join('')}</div>` : '';
-  return spaces || layers ? `<div class="cal-filters">${spaces}${layers}</div>` : '';
+  const legend = (scope.includes('moon') && layerOn('moon')) || sacredOn()
+    ? `<div class="cal-legend">${scope.includes('moon') && layerOn('moon') ? '<span><i class="lg-full"></i>🌕 Purnima</span><span><i class="lg-new"></i>🌑 Amavasya</span>' : ''}${sacredOn() ? '<span>✨ Sacred day</span>' : ''}<span class="muted">Moon days follow Bengaluru sunrise; local panchangs can differ by a day.</span></div>`
+    : '';
+  return spaces || layers ? `<div class="cal-filters">${spaces}${layers}</div>${legend}` : '';
 }
 
 function renderCalendar(vm) {
@@ -1324,6 +1359,8 @@ function renderCalendar(vm) {
   (vm.calTasks || []).filter(t => t.due).forEach(t => { (byDate[t.due] = byDate[t.due] || []).push(t); });
   Object.values(byDate).forEach(a => a.sort((x, y) => (x.done - y.done) || (x.time || '99').localeCompare(y.time || '99') || prioRank(x.priority) - prioRank(y.priority)));
   const evs = eventsByDate(ymd(start), ymd(addDays(start, 41)));
+  const moons = moonDays(ymd(start), ymd(addDays(start, 41)));
+  const sacred = sacredOn();
   const dayNames = [];
   for (let i = 0; i < 7; i++) dayNames.push(addDays(start, i).toLocaleDateString(LOCALE, { weekday: 'short' }));
   let cells = '';
@@ -1334,12 +1371,16 @@ function renderCalendar(vm) {
     const dayEvs = evs[ds] || [];
     const outside = d.getMonth() !== m.getMonth();
     const chips = [
-      ...dayEvs.map(e => `<div class="cal-ev ${e.k}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name + ': ' + e.t)}"><span class="ev-emo">${setOf(e).emoji} </span>${esc(e.t)}</div>`),
+      ...dayEvs.filter(e => !(e.k.startsWith('moon') && e.t.startsWith(e.k === 'moon-full' ? 'Purnima' : 'Amavasya'))) // plain moon days show as a badge, not a chip
+        .map(e => `<div class="cal-ev ${e.k} ${e.sacred && sacred ? 'sacred' : ''}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name + ': ' + e.t)}"><span class="ev-emo">${emojiOf(e)} </span>${esc(e.t)}</div>`),
       ...items.map(t => `<div class="cal-task ${t.done ? 'done' : ''} ${isMeeting(t) ? 'meeting' : ''}" style="--sc:${statusOf(t.status).color}" data-id="${t.id}" data-action="open" draggable="true" title="${esc(t.title)}${t.link ? ' · ' + esc((callProvider(t.link) || {}).name || '') : ''}">${isMeeting(t) ? icon('video', 'cal-vid') : ''}${t.time ? `<span class="cal-time">${esc(fmtTime(t.time))}</span>` : ''}${esc(t.title)}</div>`),
     ];
     const holiday = dayEvs.some(e => e.k === 'holiday');
-    cells += `<div class="cal-cell ${outside ? 'outside' : ''} ${ds === T ? 'is-today' : ''} ${ds === ui.calDay ? 'is-selected' : ''} ${holiday ? 'is-holiday' : ''}" data-date="${ds}" role="gridcell" aria-label="${esc(d.toLocaleDateString(LOCALE, { dateStyle: 'full' }))}, ${plural(items.length, 'task')}${dayEvs.length ? ', ' + esc(dayEvs.map(e => e.t).join(', ')) : ''}">
-      <div class="cal-day"><span>${d.getDate()}</span></div>
+    const moon = moons[ds];
+    const isSacred = sacred && dayEvs.some(e => e.sacred);
+    const moonLabel = moon === 'moon-full' ? 'Purnima (full moon)' : moon === 'moon-new' ? 'Amavasya (new moon)' : '';
+    cells += `<div class="cal-cell ${outside ? 'outside' : ''} ${ds === T ? 'is-today' : ''} ${ds === ui.calDay ? 'is-selected' : ''} ${holiday ? 'is-holiday' : ''} ${moon || ''} ${isSacred ? 'is-sacred' : ''}" data-date="${ds}" role="gridcell" aria-label="${esc(d.toLocaleDateString(LOCALE, { dateStyle: 'full' }))}, ${plural(items.length, 'task')}${moonLabel ? ', ' + moonLabel : ''}${dayEvs.length ? ', ' + esc(dayEvs.map(e => e.t).join(', ')) : ''}">
+      <div class="cal-day"><span>${d.getDate()}</span>${moon ? `<b class="moon-badge" title="${moonLabel}">${moon === 'moon-full' ? '🌕' : '🌑'}</b>` : isSacred ? '<b class="moon-badge" title="Sacred day">✨</b>' : ''}</div>
       <div class="cal-items">
         ${chips.slice(0, 3).join('')}
         ${chips.length > 3 ? `<div class="cal-more">+${chips.length - 3} more</div>` : ''}

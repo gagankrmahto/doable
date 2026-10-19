@@ -38,11 +38,34 @@ window.DOABLE_EVENT_SETS = {
       { d: '2026-10-20', t: 'Vijayadashami Pooja', time: '07:00', note: 'Navratri concludes. Bengaluru ashram.' },
       { d: '2026-10-23', t: 'Sanyam Level 2 (post-Navratri)', note: 'Oct 23–26, Bengaluru ashram.' },
     ],
+    // Festivals highlighted as sacred days in the Art of Living view
+    sacred: /^(Maha Shivaratri|First Day of Sharad Navratri|Maha (Saptami|Ashtami)|Dussehra|Diwali|Janmashtami|Ganesh Chaturthi|Rama Navami|Buddha Purnima|Vasant Panchami|Makar Sankranti|Holi|Raksha Bandhan|Gudi Padwa|Ugadi|Govardhan Puja|Guru Nanak Jayanti|Mahavir Jayanti|Maharishi Valmiki Jayanti)$/,
     derive: [
       { match: /^Maha Shivaratri$/, t: 'Maha Shivaratri: Rudra Puja & meditation', note: 'Night of meditation, chanting and Rudra Puja.' },
       { match: /^First Day of Sharad Navratri$/, t: 'Navratri begins', note: 'Nine nights of homas, satsang and celebration.' },
       { match: /^Dussehra$/, t: 'Vijayadashami: Navratri concludes', skipIfDated: true },
       { match: /^(Gudi Padwa|Ugadi)$/, t: 'Chaitra Navratri begins' },
+    ],
+  },
+
+  // Purnima & Amavasya, computed from astronomy (web/moon.js). Shown with the Art of Living space.
+  moon: {
+    name: 'Moon days',
+    short: 'Moon days',
+    emoji: '🌕',
+    color: '#8b7bd8',
+    source: 'Computed full/new moon times; day = tithi at Bengaluru sunrise',
+    moonPhases: true,
+    full: { t: 'Purnima · Full moon', note: 'Full moon at {time} IST. A powerful day for meditation, satsang and Sudarshan Kriya.' },
+    new: { t: 'Amavasya · New moon', note: 'New moon at {time} IST. A quiet, inward day, good for silence and deep meditation.' },
+    // Festivals that fall on the same day name the Purnima / Amavasya
+    names: [
+      { type: 'full', match: /^Buddha Purnima$/, t: 'Buddha Purnima · Vaishakha full moon' },
+      { type: 'full', match: /^Raksha Bandhan$/, t: 'Shravana Purnima · Raksha Bandhan' },
+      { type: 'full', match: /^Maharishi Valmiki Jayanti$/, t: 'Sharad Purnima · Valmiki Jayanti' },
+      { type: 'full', match: /^Guru Nanak Jayanti$/, t: 'Kartik Purnima · Dev Deepawali' },
+      { type: 'full', match: /^Holi(ka Dahana)?$/, t: 'Phalguna Purnima · Holi' },
+      { type: 'new', match: /^First Day of Sharad Navratri$/, offset: 1, t: 'Mahalaya Amavasya', note: 'Pitru Paksha ends; Navratri begins the next day.' },
     ],
   },
 
