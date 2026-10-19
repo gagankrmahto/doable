@@ -832,8 +832,8 @@ function renderSidebar() {
     return `
     <div class="nav-row">
       <button class="nav-item ${cur === 'list:' + l.id ? 'active' : ''}" data-nav="list:${l.id}" data-drop-list="${l.id}">
-        ${avatar(l.name, l.color, 'sm')}<span class="nav-label">${esc(l.name)}</span>
-        ${set ? `<span class="nav-emoji" title="Includes ${esc(set.name)} calendar">${set.emoji}</span>` : ''}
+        ${avatar(l.name, l.color, 'sm')}
+        <span class="nav-label"><span class="nl-text">${esc(l.name)}</span>${set ? `<span class="nav-emoji" title="Includes ${esc(set.name)} calendar">${set.emoji}</span>` : ''}</span>
         ${n ? `<span class="count">${n}</span>` : ''}
       </button>
       <button class="nav-edit icon-btn xs" data-action="edit-list" data-list="${l.id}" aria-label="Edit ${esc(l.name)}" title="List settings">${icon('more')}</button>

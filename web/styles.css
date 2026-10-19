@@ -757,7 +757,10 @@ button.inline-add:hover { color: var(--accent); background: var(--accent-softer)
 .es-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
 .es-text b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .es-text span { font-size: 11.5px; color: var(--text-3); font-weight: 600; }
-.nav-emoji { font-size: 13px; line-height: 1; opacity: .85; }
+/* Space rows: emoji sits right after the name so the "⋯" button (which replaces the count) never covers it */
+.nav-label:has(.nl-text) { display: flex; align-items: center; gap: 6px; }
+.nl-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-emoji { flex: none; font-size: 13px; line-height: 1; opacity: .85; }
 
 /* ---------- Task modal ---------- */
 .details { display: none; }
