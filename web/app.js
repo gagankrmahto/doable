@@ -32,6 +32,7 @@ const ICONS = {
   star: '<path d="M12 2.5l2.9 5.9 6.6 1-4.8 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.5 9.4l6.6-1z"/>',
   starFill: '<path fill="currentColor" d="M12 2.5l2.9 5.9 6.6 1-4.8 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.5 9.4l6.6-1z"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  calendarDays: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>',
   repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>',
@@ -94,6 +95,7 @@ const prioRank = p => (p === 0 ? 5 : p);
 const SMART = [
   { id: 'today', name: 'Today', icon: 'sun' },
   { id: 'upcoming', name: 'Upcoming', icon: 'calendar' },
+  { id: 'calendar', name: 'Calendar', icon: 'calendarDays' },
   { id: 'starred', name: 'Starred', icon: 'star' },
   { id: 'all', name: 'All tasks', icon: 'layers' },
   { id: 'completed', name: 'Completed', icon: 'checkCircle' },
@@ -111,7 +113,7 @@ const GROUPS = [
   { v: 'status', label: 'Status' }, { v: 'priority', label: 'Priority' }, { v: 'due', label: 'Due date' },
   { v: 'list', label: 'List' }, { v: 'none', label: 'None' },
 ];
-const MODES = { list: { label: 'List', icon: 'list' }, board: { label: 'Board', icon: 'board' }, calendar: { label: 'Calendar', icon: 'calendar' } };
+const MODES = { list: { label: 'List', icon: 'list' }, board: { label: 'Board', icon: 'board' }, calendar: { label: 'Calendar', icon: 'calendarDays' } };
 const QA_EXAMPLES = [
   'Call mom tomorrow 6pm #family',
   'Pay rent every month !1',
@@ -680,7 +682,8 @@ function viewModel() {
       groups.push({ key: 'today', title: 'Today', tasks: S(rest), add: { due: T }, keepEmpty: true });
       const total = active.length + completed.length;
       return {
-        title: 'Today', icon: 'sun', showList: true, groups, completed, modes: ['list', 'board'], boardTasks: [...active, ...completed],
+        title: 'Today', icon: 'sun', showList: true, groups, completed, modes: ['list', 'board', 'calendar'], boardTasks: [...active, ...completed],
+        calTasks: top.filter(t => t.due),
         subtitle: new Date().toLocaleDateString(LOCALE, { weekday: 'long', month: 'long', day: 'numeric' }),
         progress: total ? { done: completed.length, total } : null,
         empty: completed.length
@@ -703,6 +706,13 @@ function viewModel() {
         title: 'Upcoming', icon: 'calendar', showList: true, groups, completed: [], modes: ALL_MODES,
         calTasks: top.filter(t => t.due), boardTasks: top.filter(t => t.due && (!t.done || ymd(new Date(t.doneAt || 0)) === T)),
         subtitle: 'Plan your week ahead', hideEmpty: true,
+      };
+    }
+    case 'calendar': {
+      const dated = top.filter(t => t.due);
+      return {
+        title: 'Calendar', icon: 'calendarDays', showList: true, modes: ['calendar'], groups: [], completed: [],
+        calTasks: top, subtitle: `${plural(dated.filter(t => !t.done).length, 'scheduled task')} · drag tasks between days`,
       };
     }
     case 'starred': {
@@ -829,7 +839,7 @@ function getStreak() {
 function renderMain() {
   const vm = viewModel();
   ui.vm = vm;
-  if (!vm.modes.includes(ui.mode)) ui.mode = 'list';
+  if (!vm.modes.includes(ui.mode)) ui.mode = vm.modes[0];
   ui.addTargets = {};
   renderHeader(vm);
   renderQaHint();
@@ -1746,7 +1756,8 @@ function setMode(m) {
 
 // Bookmarkable views: #smart/today, #list/<id or name>/board, #tag/travel/calendar
 function syncHash() {
-  const h = `#${ui.view.type}/${encodeURIComponent(ui.view.id)}${ui.mode !== 'list' ? '/' + ui.mode : ''}`;
+  const defaultMode = ui.vm ? ui.vm.modes[0] : 'list';
+  const h = `#${ui.view.type}/${encodeURIComponent(ui.view.id)}${ui.mode !== defaultMode ? '/' + ui.mode : ''}`;
   if (location.hash !== h) history.replaceState(null, '', h);
 }
 function viewFromHash() {
