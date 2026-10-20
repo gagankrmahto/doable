@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_bg">#F7FFFFFF</color>
+    <color name="widget_border">#1A24262E</color>
+    <color name="widget_text">#24262E</color>
+    <color name="widget_muted">#7A818F</color>
+    <color name="widget_accent">#5B4FD0</color>
+    <color name="widget_next_bg">#1F7B68EE</color>
+    <string name="widget_name">Doable · Today</string>
+    <string name="widget_description">Today’s tasks, your next meeting and quick add</string>
+</resources>

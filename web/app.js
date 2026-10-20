@@ -345,6 +345,7 @@ function save() {
 function afterSave() {
   if (window.DoableSync) DoableSync.changed();
   scheduleNativeReminders();
+  updateWidget();
 }
 const touch = () => { state.meta.pristine = false; };
 
@@ -2557,6 +2558,10 @@ function openSettings() {
         <div><b>Location</b><div class="muted small">For sunrise, sunset and panchang · ${esc(currentLocation().name)}</div></div>
         <button class="btn ghost sm" data-act="location">${icon('mapPin')}Change</button>
       </div>
+      ${isNative ? `<div class="set-row">
+        <div><b>Home-screen widget</b><div class="muted small">Today’s tasks, next meeting and quick add on your home screen</div></div>
+        <button class="btn ghost sm" data-act="widget">${icon('plus')}Add to home screen</button>
+      </div>` : ''}
       <div class="set-row">
         <div><b>Birthdays & anniversaries</b><div class="muted small">${state.people.length ? peopleCount(state.people.length) + ' saved' : 'Add people or import from Google Contacts'}</div></div>
         <button class="btn ghost sm" data-act="people">🎂 Manage</button>
@@ -2593,6 +2598,11 @@ function openSettings() {
       if (act === 'account') openAccount();
       if (act === 'location') openLocationPicker();
       if (act === 'people') openPeopleManager();
+      if (act === 'widget' && native.WidgetBridge) {
+        updateWidget();
+        const r = await native.WidgetBridge.pin().catch(() => ({ requested: false }));
+        if (!r.requested) toast('Long-press your home screen → Widgets → Doable to add it');
+      }
       if (act === 'notify') { await askNotifyPermission(true); openSettings(); }
       if (act === 'reset') {
         const ok = await confirmDialog({ title: 'Reset everything?', message: 'All lists and tasks on this device will be replaced with the starter set. Export a backup first if you want to keep them.', confirm: 'Reset' });
@@ -3222,8 +3232,61 @@ const native = isNative ? {
   App: Cap.registerPlugin('App'),
   Notifications: Cap.registerPlugin('LocalNotifications'),
   SystemBars: window.capacitorExports && window.capacitorExports.SystemBars,
+  WidgetBridge: Cap.registerPlugin('WidgetBridge'),
 } : {};
 if (isNative) document.documentElement.classList.add('native');
+
+/* ---------- Home-screen widget (Android) ---------- */
+let widgetTimer = 0;
+// Sends a compact summary for today and tomorrow; the widget shows whichever matches the device date.
+function updateWidget() {
+  if (!native.WidgetBridge) return;
+  clearTimeout(widgetTimer);
+  widgetTimer = setTimeout(() => {
+    try {
+      const T = todayStr();
+      const days = {};
+      for (const offset of [0, 1]) {
+        const day = ymd(addDays(new Date(), offset));
+        const top = state.tasks.filter(t => !t.parentId && !t.done && ((t.due && (offset === 0 ? t.due <= day : t.due === day)) || t.myDay === day));
+        const sorted = top.sort((a, b) => ((a.due || '') < day) - ((b.due || '') < day) || (a.time || '99').localeCompare(b.time || '99') || prioRank(a.priority) - prioRank(b.priority));
+        const items = sorted.slice(0, 5).map(t => ({
+          id: t.id,
+          t: (isMeeting(t) ? '🎥 ' : '') + (t.title || 'Untitled'),
+          meta: t.due && t.due < day ? 'Overdue' : t.time ? fmtTime(t.time) : '',
+          color: t.priority ? prioOf(t.priority).color : statusOf(t.status).color,
+        }));
+        const meetings = state.tasks.filter(t => isMeeting(t) && !t.done && t.due === day && t.time && (offset > 0 || endTime(t) > `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`)).sort((a, b) => a.time.localeCompare(b.time));
+        const m = meetings[0];
+        const practices = activePractices().filter(p => scheduledOn(p, day));
+        const doneP = practices.filter(p => isDone(day, p.id)).length;
+        const bits = [];
+        if (window.Panchang) bits.push(Panchang.dayInfo(day).tithi.label);
+        if (practices.length) bits.push(`Sadhana ${doneP}/${practices.length}`);
+        const bdays = (eventsByDate(day, day, ['birthdays'])[day] || []).map(e => `🎂 ${e.t.split("'")[0]}`);
+        bits.push(...bdays);
+        days[day] = {
+          label: parseYmd(day).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' }) + (top.length ? ` · ${top.length} to do` : ''),
+          items,
+          more: Math.max(0, sorted.length - items.length),
+          next: m ? { t: m.title || 'Meeting', meta: `${fmtTime(m.time)}${m.link ? ' · ' + ((callProvider(m.link) || {}).name || 'call') : ''}`, url: `doable://task/${m.id}` } : null,
+          footer: bits.join('  ·  '),
+          empty: offset === 0 ? 'Nothing due today ✨' : 'Nothing planned',
+        };
+      }
+      native.WidgetBridge.update({ data: JSON.stringify({ updated: Date.now(), days }) }).catch(() => {});
+    } catch (e) { console.warn('Widget update failed', e); }
+  }, 800);
+}
+// Links from the widget: doable://today, doable://quickadd, doable://task/<id>
+function handleAppUrl(url) {
+  const m = String(url || '').match(/^doable:\/\/([^/?#]+)\/?([^?#]*)/);
+  if (!m) return;
+  closeModal();
+  if (m[1] === 'quickadd') { navigate('smart:today'); setTimeout(focusQuickAdd, 150); }
+  else if (m[1] === 'task' && getTask(m[2])) openDetails(m[2]);
+  else navigate('smart:today');
+}
 
 const notifId = s => { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return (Math.abs(h) % 2147483646) + 1; };
 let reminderTimer = 0;
@@ -3296,7 +3359,10 @@ function bindNative() {
     if (viewKey() !== 'smart:today') return navigate('smart:today');
     native.App.minimizeApp();
   });
-  native.App.addListener('resume', () => { checkReminders(); if (window.DoableSync) DoableSync.syncNow(); });
+  native.App.addListener('resume', () => { checkReminders(); updateWidget(); if (window.DoableSync) DoableSync.syncNow(); });
+  native.App.addListener('appUrlOpen', ev => handleAppUrl(ev && ev.url));
+  native.App.getLaunchUrl().then(r => { if (r && r.url) handleAppUrl(r.url); }).catch(() => {});
+  updateWidget();
   native.Notifications.addListener('localNotificationActionPerformed', ev => {
     const extra = (ev && ev.notification && ev.notification.extra) || {};
     if (extra.practiceId) { navigate('smart:sadhana'); return; }
