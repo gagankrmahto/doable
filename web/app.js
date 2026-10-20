@@ -72,6 +72,7 @@ const ICONS = {
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
   video: '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   lotus: '<path d="M12 20c-2.2-2.2-3.2-5-3.2-8 0-2.6 1.2-5.2 3.2-7.2 2 2 3.2 4.6 3.2 7.2 0 3-1 5.8-3.2 8z"/><path d="M12 20c-4.4 0-8.4-2.4-9-6.6 2.6-.4 5 .4 6.8 2.2M12 20c4.4 0 8.4-2.4 9-6.6-2.6-.4-5 .4-6.8 2.2"/>',
   mapPin: '<path d="M20 10c0 4.99-5.54 10.19-7.4 11.79a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
   sunrise: '<path d="M12 2v6M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M8 6l4-4 4 4M16 18a4 4 0 0 0-8 0"/>',
@@ -103,7 +104,7 @@ const SMART = [
   { id: 'today', name: 'Today', icon: 'sun' },
   { id: 'upcoming', name: 'Upcoming', icon: 'calendar' },
   { id: 'calendar', name: 'Calendar', icon: 'calendarDays' },
-  { id: 'sadhana', name: 'Sadhana', icon: 'lotus' },
+  { id: 'sadhana', name: 'Habits', icon: 'target' },
   { id: 'starred', name: 'Starred', icon: 'star' },
   { id: 'all', name: 'All tasks', icon: 'layers' },
   { id: 'completed', name: 'Completed', icon: 'checkCircle' },
@@ -234,10 +235,35 @@ const DEFAULT_PRACTICES = [
   { id: 'pr-satsang', name: 'Satsang', emoji: '🎶', color: '#e2a336', days: [0], order: 3 },
   { id: 'pr-seva', name: 'Seva', emoji: '🙏', color: '#12a594', days: [6], order: 4 },
 ];
+// Habits: "check" (did it / didn't) or "count" (e.g. 8 glasses of water). Sadhana practices are the "sadhana" group.
+const HABIT_GROUPS = [
+  { id: 'sadhana', name: 'Sadhana', emoji: '🧘' },
+  { id: 'health', name: 'Health', emoji: '💪' },
+  { id: 'mind', name: 'Mind & learning', emoji: '📖' },
+  { id: 'other', name: 'Other', emoji: '✨' },
+];
+const HABIT_TEMPLATES = [
+  { name: 'Drink water', emoji: '💧', group: 'health', type: 'count', target: 8, unit: 'glasses', color: '#0090ff' },
+  { name: 'Walk', emoji: '🚶', group: 'health', type: 'count', target: 30, unit: 'min', color: '#30a46c' },
+  { name: 'Exercise', emoji: '🏃', group: 'health', type: 'check', color: '#e5484d' },
+  { name: 'Sleep by 10:30 PM', emoji: '😴', group: 'health', type: 'check', color: '#6e56cf' },
+  { name: 'Eat healthy', emoji: '🥗', group: 'health', type: 'check', color: '#12a594' },
+  { name: 'Read', emoji: '📖', group: 'mind', type: 'count', target: 20, unit: 'pages', color: '#e2a336' },
+  { name: 'Gratitude journal', emoji: '🙏', group: 'mind', type: 'check', color: '#d6409f' },
+  { name: 'No phone after 9 PM', emoji: '📵', group: 'mind', type: 'check', color: '#6f6e77' },
+  { name: 'Learn something new', emoji: '💡', group: 'mind', type: 'check', color: '#f76b15' },
+  { name: 'Japa', emoji: '📿', group: 'sadhana', type: 'count', target: 4, unit: 'malas', color: '#f76b15' },
+  { name: 'Pranayama', emoji: '🌬️', group: 'sadhana', type: 'check', color: '#8b7bd8' },
+  { name: 'Read Knowledge Sheet', emoji: '📜', group: 'sadhana', type: 'check', color: '#e2a336' },
+];
 const practiceFrom = p => (p && p.id ? {
-  id: String(p.id), name: String(p.name || 'Practice'), emoji: p.emoji || '✨', color: p.color || '#8b7bd8',
+  id: String(p.id), name: String(p.name || 'Habit'), emoji: p.emoji || '✨', color: p.color || '#8b7bd8',
   days: Array.isArray(p.days) && p.days.length ? p.days.map(Number).filter(n => n >= 0 && n <= 6) : [...ALL_DAYS],
   remind: /^\d\d:\d\d$/.test(p.remind || '') ? p.remind : null, order: +p.order || 0, archived: !!p.archived,
+  group: HABIT_GROUPS.some(g => g.id === p.group) ? p.group : 'sadhana',
+  type: p.type === 'count' ? 'count' : 'check',
+  target: Math.max(1, Math.min(9999, Math.round(+p.target || 1))),
+  unit: String(p.unit || '').slice(0, 20),
 } : null);
 // Default practices once per account (deterministic ids, so two devices don't create duplicates)
 function ensureSadhana() {
@@ -860,8 +886,8 @@ function viewModel() {
       const due = activePractices().filter(p => scheduledOn(p, T));
       const done = due.filter(p => isDone(T, p.id)).length;
       return {
-        title: 'Sadhana', icon: 'lotus', modes: ['list'], groups: [], completed: [], sortable: false, sadhana: true,
-        subtitle: due.length ? `${done} of ${due.length} practices done today` : 'Your daily practice',
+        title: 'Habits', icon: 'target', modes: ['list'], groups: [], completed: [], sortable: false, sadhana: true,
+        subtitle: due.length ? `${done} of ${due.length} done today` : 'Sadhana, health and everyday habits',
       };
     }
     case 'calendar': {
@@ -1451,9 +1477,15 @@ function openLocationPicker() {
 }
 
 /* ---------- Sadhana tracker UI ---------- */
-const activePractices = () => state.practices.filter(p => !p.archived).sort((a, b) => a.order - b.order);
+const activePractices = () => state.practices.filter(p => !p.archived).sort((a, b) => (HABIT_GROUPS.findIndex(g => g.id === a.group) - HABIT_GROUPS.findIndex(g => g.id === b.group)) || a.order - b.order);
 const scheduledOn = (p, day) => p.days.includes(parseYmd(day).getDay());
-const isDone = (day, pid) => !!(state.sadhana[day] && state.sadhana[day][pid]);
+const logOf = (day, pid) => state.sadhana[day] && state.sadhana[day][pid];
+const isDone = (day, pid) => { const l = logOf(day, pid); return !!l && l.done !== false; };
+// Count habits: how far along today (check habits are 0 or 1)
+const countOf = (day, p) => { const l = logOf(day, p.id); return !l ? 0 : typeof l.count === 'number' ? l.count : l.done !== false ? p.target : 0; };
+const progressOf = (day, p) => (p.type === 'count' ? Math.min(1, countOf(day, p) / p.target) : isDone(day, p.id) ? 1 : 0);
+const habitStep = p => (p.target <= 12 ? 1 : Math.round(p.target / 4));
+const habitGroupFilter = () => state.settings.habitGroup || 'all';
 const dayBefore = d => ymd(addDays(parseYmd(d), -1));
 const firstLogDay = () => Object.keys(state.sadhana).sort()[0] || todayStr();
 
@@ -1674,58 +1706,96 @@ function openPeopleManager(editId) {
   });
 }
 
+function habitValueLabel(p, day) {
+  if (p.type !== 'count') return '';
+  return `${countOf(day, p)}/${p.target}${p.unit ? ' ' + p.unit : ''}`;
+}
+
 function sadhanaStrip() {
   if (state.settings.showSadhana === false) return '';
   const T = todayStr();
   const list = activePractices().filter(p => scheduledOn(p, T));
   if (!list.length) return '';
   const done = list.filter(p => isDone(T, p.id)).length;
-  const hint = sadhanaHint(T);
+  const hint = list.some(p => p.group === 'sadhana') ? sadhanaHint(T) : '';
   return `<section class="sd-strip">
-    <header><span>${icon('lotus')}Sadhana</span><b>${done}/${list.length}</b>${hint ? `<em>${esc(hint)}</em>` : ''}<button class="link-btn" data-nav="smart:sadhana">Open ${icon('chevronRight')}</button></header>
+    <header><span>${icon('target')}Habits</span><b>${done}/${list.length}</b>${hint ? `<em>${esc(hint)}</em>` : ''}<button class="link-btn" data-nav="smart:sadhana">Open ${icon('chevronRight')}</button></header>
     <div class="sd-chips">${list.map(p => {
       const on = isDone(T, p.id);
       const s = on ? streakOf(p).current : 0;
-      return `<button class="sd-chip ${on ? 'done' : ''}" data-action="sd-toggle" data-p="${p.id}" style="--pc:${p.color}" aria-pressed="${on}">
-        <span class="sd-emo">${p.emoji}</span><span>${esc(p.name)}</span>${on ? `<span class="sd-tick">${icon('check')}</span>${s > 1 ? `<small>🔥${s}</small>` : ''}` : ''}
+      const count = p.type === 'count';
+      const pct = Math.round(progressOf(T, p) * 100);
+      return `<button class="sd-chip ${on ? 'done' : ''} ${count ? 'hb-count' : ''}" data-action="${count && !on ? 'sd-inc' : 'sd-toggle'}" data-p="${p.id}" style="--pc:${p.color};--pct:${pct}%" aria-pressed="${on}" title="${count ? (on ? 'Done — tap to reset' : `Tap to add ${habitStep(p)}`) : ''}">
+        <span class="sd-emo">${p.emoji}</span><span>${esc(p.name)}</span>${count ? `<small class="sd-count">${esc(habitValueLabel(p, T))}</small>` : ''}${on ? `<span class="sd-tick">${icon('check')}</span>${s > 1 ? `<small>🔥${s}</small>` : ''}` : ''}
       </button>`;
     }).join('')}</div>
   </section>`;
 }
 
-function heatmap(weeks = 26) {
+function heatmap(weeks = 26, ps = activePractices()) {
   const T = todayStr();
   const ws = state.settings.weekStart;
   const today = parseYmd(T);
   const end = addDays(today, (ws + 6 - today.getDay() + 7) % 7); // end of this week
   const start = addDays(end, -(weeks * 7 - 1));
-  const ps = activePractices();
   let cells = '', months = '';
   let lastMonth = -1;
   for (let w = 0; w < weeks; w++) {
     const colStart = addDays(start, w * 7);
     if (colStart.getMonth() !== lastMonth) { lastMonth = colStart.getMonth(); months += `<span style="grid-column:${w + 1}">${colStart.toLocaleDateString(LOCALE, { month: 'short' })}</span>`; }
     for (let r = 0; r < 7; r++) {
-      const dt = addDays(colStart, r);
-      const d = ymd(dt);
-      const future = d > T;
-      const due = ps.filter(p => scheduledOn(p, d)).length;
+      const d = ymd(addDays(colStart, r));
+      const due = ps.filter(p => scheduledOn(p, d));
+      const score = ps.reduce((s, p) => s + progressOf(d, p), 0);
+      const level = d > T ? -1 : score === 0 ? 0 : !due.length ? 4 : Math.max(1, Math.min(4, Math.ceil((score / due.length) * 4)));
       const did = ps.filter(p => isDone(d, p.id)).length;
-      const level = future ? -1 : did === 0 ? 0 : !due ? 4 : Math.max(1, Math.min(4, Math.ceil((did / due) * 4)));
-      cells += `<i class="hm l${level}" style="grid-column:${w + 1};grid-row:${r + 1}" title="${esc(fmtDate(d))}: ${did}${due ? '/' + due : ''} practices"></i>`;
+      cells += `<i class="hm l${level}" style="grid-column:${w + 1};grid-row:${r + 1}" title="${esc(fmtDate(d))}: ${did}${due.length ? '/' + due.length : ''} done"></i>`;
     }
   }
   return `<div class="hm-wrap"><div class="hm-months" style="grid-template-columns:repeat(${weeks},1fr)">${months}</div><div class="hm-grid" style="grid-template-columns:repeat(${weeks},1fr)">${cells}</div>
     <div class="hm-legend">Less <i class="hm l0"></i><i class="hm l1"></i><i class="hm l2"></i><i class="hm l3"></i><i class="hm l4"></i> More</div></div>`;
 }
 
+function habitCard(p, day) {
+  const on = isDone(day, p.id);
+  const sched = scheduledOn(p, day);
+  const st = streakOf(p);
+  const status = sched ? (st.current ? `🔥 ${st.current}-day streak` : 'Start your streak today') : 'Not scheduled today';
+  const meta = `${status}${p.remind ? ` · ⏰ ${esc(fmtTime(p.remind))}` : ''}`;
+  if (p.type === 'count') {
+    const n = countOf(day, p);
+    const pct = Math.round(progressOf(day, p) * 100);
+    return `<div class="sd-card hb-count ${on ? 'done' : ''} ${sched ? '' : 'off'}" data-p="${p.id}" style="--pc:${p.color};--pct:${pct}%">
+      <span class="sd-emoji">${p.emoji}</span>
+      <span class="sd-info"><b>${esc(p.name)}</b><small>${meta}</small>
+        <span class="sd-bar"><span></span></span>
+      </span>
+      <span class="sd-stepper">
+        <button class="sd-step" data-action="sd-dec" data-p="${p.id}" data-day="${day}" aria-label="Less" ${n ? '' : 'disabled'}>−</button>
+        <label class="sd-val"><input type="number" min="0" max="9999" value="${n}" data-sd-count="${p.id}" data-day="${day}" aria-label="${esc(p.name)} count"><small>/${p.target}${p.unit ? ' ' + esc(p.unit) : ''}</small></label>
+        <button class="sd-step plus" data-action="sd-inc" data-p="${p.id}" data-day="${day}" aria-label="More">+</button>
+      </span>
+    </div>`;
+  }
+  return `<button class="sd-card ${on ? 'done' : ''} ${sched ? '' : 'off'}" data-action="sd-toggle" data-p="${p.id}" data-day="${day}" style="--pc:${p.color}" aria-pressed="${on}">
+    <span class="sd-emoji">${p.emoji}</span>
+    <span class="sd-info"><b>${esc(p.name)}</b><small>${meta}</small></span>
+    <span class="sd-check">${icon('check')}</span>
+  </button>`;
+}
+
 function renderSadhana() {
   const T = todayStr();
   const day = ui.sadhanaDay && ui.sadhanaDay <= T ? ui.sadhanaDay : T;
-  const ps = activePractices();
-  const hint = sadhanaHint(day);
+  const filter = habitGroupFilter();
+  const all = activePractices();
+  const ps = filter === 'all' ? all : all.filter(p => p.group === filter);
+  const groups = HABIT_GROUPS.filter(g => all.some(p => p.group === g.id));
+  const hint = ps.some(p => p.group === 'sadhana') ? sadhanaHint(day) : '';
   const last7 = [];
   for (let i = 6; i >= 0; i--) last7.push(ymd(addDays(parseYmd(T), -i)));
+  const sections = (filter === 'all' ? groups : groups.filter(g => g.id === filter))
+    .map(g => ({ g, items: ps.filter(p => p.group === g.id) })).filter(s => s.items.length);
   return `
     <div class="sd-head">
       <div class="sd-nav">
@@ -1733,20 +1803,18 @@ function renderSadhana() {
         <b>${esc(fmtDate(day))}</b><span class="muted small">${esc(fmtShort(day))}</span>
         <button class="icon-btn sm" data-action="sd-day" data-delta="1" aria-label="Next day" ${day >= T ? 'disabled' : ''}>${icon('chevronRight')}</button>
       </div>
-      <button class="btn ghost sm" data-action="sd-manage">${icon('edit')}Edit practices</button>
+      <button class="btn ghost sm" data-action="sd-manage">${icon('edit')}Edit habits</button>
     </div>
+    ${groups.length > 1 ? `<div class="cal-spaces hb-groups" role="tablist">
+      <button class="space-chip ${filter === 'all' ? 'on' : ''}" data-action="hb-group" data-g="all">All</button>
+      ${groups.map(g => `<button class="space-chip ${filter === g.id ? 'on' : ''}" data-action="hb-group" data-g="${g.id}">${g.emoji} ${esc(g.name)}</button>`).join('')}
+    </div>` : ''}
     ${hint ? `<p class="sd-hint">${esc(hint)}</p>` : ''}
-    ${panchangStrip(day, { compact: true })}
-    <div class="sd-grid">${ps.length ? ps.map(p => {
-      const on = isDone(day, p.id);
-      const sched = scheduledOn(p, day);
-      const st = streakOf(p);
-      return `<button class="sd-card ${on ? 'done' : ''} ${sched ? '' : 'off'}" data-action="sd-toggle" data-p="${p.id}" data-day="${day}" style="--pc:${p.color}" aria-pressed="${on}">
-        <span class="sd-emoji">${p.emoji}</span>
-        <span class="sd-info"><b>${esc(p.name)}</b><small>${sched ? (st.current ? `🔥 ${st.current}-day streak` : 'Start your streak today') : 'Not scheduled today'}${p.remind ? ` · ⏰ ${esc(fmtTime(p.remind))}` : ''}</small></span>
-        <span class="sd-check">${icon('check')}</span>
-      </button>`;
-    }).join('') : '<p class="muted">No practices yet — add one with “Edit practices”.</p>'}</div>
+    ${filter === 'all' || filter === 'sadhana' ? panchangStrip(day, { compact: true }) : ''}
+    ${sections.length ? sections.map(s => `
+      ${sections.length > 1 ? `<h3 class="hb-group-title">${s.g.emoji} ${esc(s.g.name)}</h3>` : ''}
+      <div class="sd-grid">${s.items.map(p => habitCard(p, day)).join('')}</div>`).join('')
+      : '<p class="muted pad">No habits here yet — add one with “Edit habits”.</p>'}
     ${ps.length ? `
     <section class="sd-section">
       <h3>Last 7 days</h3>
@@ -1754,54 +1822,92 @@ function renderSadhana() {
         <div class="sd-row sd-th"><span></span>${last7.map(d => `<span>${esc(parseYmd(d).toLocaleDateString(LOCALE, { weekday: 'narrow' }))}</span>`).join('')}<span>Streak</span><span>Best</span><span>Month</span></div>
         ${ps.map(p => { const st = streakOf(p); const mr = monthRate(p); return `<div class="sd-row" style="--pc:${p.color}">
           <span class="sd-pname">${p.emoji} ${esc(p.name)}</span>
-          ${last7.map(d => `<span><i class="sd-dot ${isDone(d, p.id) ? 'on' : scheduledOn(p, d) ? '' : 'na'}" title="${esc(fmtDate(d))}"></i></span>`).join('')}
+          ${last7.map(d => { const pr = progressOf(d, p); return `<span><i class="sd-dot ${pr >= 1 ? 'on' : pr > 0 ? 'part' : scheduledOn(p, d) ? '' : 'na'}" style="--pp:${Math.round(pr * 100)}%" title="${esc(fmtDate(d))}${p.type === 'count' ? ': ' + countOf(d, p) + '/' + p.target : ''}"></i></span>`; }).join('')}
           <span><b>${st.current}</b></span><span>${st.best}</span><span>${mr == null ? '—' : mr + '%'}</span>
         </div>`; }).join('')}
       </div>
     </section>
-    <section class="sd-section"><h3>Your practice · last 6 months</h3>${heatmap(26)}</section>` : ''}`;
+    <section class="sd-section"><h3>${filter === 'all' ? 'All habits' : esc((HABIT_GROUPS.find(g => g.id === filter) || {}).name || '')} · last 6 months</h3>${heatmap(26, ps)}</section>` : ''}`;
+}
+
+function celebrateIfAllDone(day) {
+  const T = todayStr();
+  if (day !== T) return false;
+  const all = activePractices().filter(x => scheduledOn(x, T));
+  if (all.length > 1 && all.every(x => isDone(T, x.id))) { celebrate(); toast('🙏 Every habit done today — beautiful!'); return true; }
+  return false;
+}
+function setHabitCount(pid, day, n) {
+  const p = state.practices.find(x => x.id === pid);
+  if (!p || day > todayStr()) return;
+  const before = isDone(day, pid);
+  n = Math.max(0, Math.min(9999, Math.round(n) || 0));
+  commit(() => {
+    if (!n) { if (state.sadhana[day]) { delete state.sadhana[day][pid]; if (!Object.keys(state.sadhana[day]).length) delete state.sadhana[day]; } }
+    else (state.sadhana[day] = state.sadhana[day] || {})[pid] = { done: n >= p.target, count: n, at: Date.now() };
+  });
+  if (!before && isDone(day, pid) && !celebrateIfAllDone(day)) {
+    const s = streakOf(p).current;
+    toast(`${p.emoji} ${p.name} — goal reached${s > 1 ? ` · ${s}-day streak 🔥` : ''}`, { undo: true });
+  }
 }
 
 function togglePractice(pid, day = todayStr()) {
   const p = state.practices.find(x => x.id === pid);
   if (!p || day > todayStr()) return;
+  if (p.type === 'count') { setHabitCount(pid, day, isDone(day, pid) ? 0 : p.target); return; }
   const was = isDone(day, pid);
   commit(() => {
     if (was) { delete state.sadhana[day][pid]; if (!Object.keys(state.sadhana[day]).length) delete state.sadhana[day]; }
     else (state.sadhana[day] = state.sadhana[day] || {})[pid] = { done: true, at: Date.now() };
   });
-  if (was) return;
+  if (was || celebrateIfAllDone(day)) return;
   const s = streakOf(p).current;
-  const T = todayStr();
-  const all = activePractices().filter(x => scheduledOn(x, T));
-  if (day === T && all.length > 1 && all.every(x => isDone(T, x.id))) { celebrate(); toast('🙏 Full sadhana done today — beautiful!'); }
-  else toast(s > 1 ? `${p.emoji} ${p.name} · ${s}-day streak 🔥` : `${p.emoji} ${p.name} done`, { undo: true });
+  toast(s > 1 ? `${p.emoji} ${p.name} · ${s}-day streak 🔥` : `${p.emoji} ${p.name} done`, { undo: true });
 }
 
 function openPracticeEditor() {
   const DOW = [0, 1, 2, 3, 4, 5, 6].map(i => new Date(2024, 0, 7 + i).toLocaleDateString(LOCALE, { weekday: 'narrow' }));
   const draw = m => {
-    const ps = [...state.practices].sort((a, b) => a.order - b.order);
+    const ps = [...state.practices].sort((a, b) => (HABIT_GROUPS.findIndex(g => g.id === a.group) - HABIT_GROUPS.findIndex(g => g.id === b.group)) || a.order - b.order);
     m.querySelector('.pe-list').innerHTML = ps.map(p => `
       <div class="pe-row ${p.archived ? 'archived' : ''}" data-p="${p.id}" style="--pc:${p.color}">
         <input class="pe-emoji" value="${esc(p.emoji)}" maxlength="4" data-f="emoji" aria-label="Emoji">
-        <input class="pe-name" value="${esc(p.name)}" data-f="name" aria-label="Practice name">
+        <input class="pe-name" value="${esc(p.name)}" data-f="name" aria-label="Habit name">
+        <select data-f="group" aria-label="Group">${HABIT_GROUPS.map(g => `<option value="${g.id}" ${p.group === g.id ? 'selected' : ''}>${g.emoji} ${esc(g.name)}</option>`).join('')}</select>
+        <span class="pe-goal">
+          <select data-f="type" aria-label="Type"><option value="check" ${p.type === 'check' ? 'selected' : ''}>Yes / no</option><option value="count" ${p.type === 'count' ? 'selected' : ''}>Count</option></select>
+          ${p.type === 'count' ? `<input type="number" min="1" max="9999" value="${p.target}" data-f="target" aria-label="Daily target"><input class="pe-unit" value="${esc(p.unit)}" placeholder="unit" data-f="unit" aria-label="Unit">` : ''}
+        </span>
         <div class="pe-days" role="group" aria-label="Days">${DOW.map((l, i) => `<button class="${p.days.includes(i) ? 'on' : ''}" data-day="${i}" aria-pressed="${p.days.includes(i)}">${l}</button>`).join('')}</div>
         <label class="pe-time" title="Daily reminder">${icon('bell')}<input type="time" value="${p.remind || ''}" data-f="remind" aria-label="Reminder time"></label>
         <button class="icon-btn sm" data-pe="${p.archived ? 'restore' : 'archive'}" title="${p.archived ? 'Show again' : 'Hide (keeps history)'}">${icon(p.archived ? 'repeat' : 'x')}</button>
       </div>`).join('');
+    const have = new Set(state.practices.map(p => p.name.toLowerCase()));
+    m.querySelector('.pe-templates').innerHTML = HABIT_TEMPLATES.filter(t => !have.has(t.name.toLowerCase()))
+      .map((t, i) => `<button class="pe-tpl" data-tpl="${HABIT_TEMPLATES.indexOf(t)}" style="--pc:${t.color}">${t.emoji} ${esc(t.name)}${t.type === 'count' ? ` <small>${t.target} ${esc(t.unit)}</small>` : ''}</button>`).join('');
+  };
+  const addHabit = (base, m) => {
+    const order = Math.max(-1, ...state.practices.map(p => p.order)) + 1;
+    commit(() => { state.practices.push(practiceFrom({ id: uid(), days: ALL_DAYS, color: LIST_COLORS[order % LIST_COLORS.length], ...base, order })); });
+    draw(m);
   };
   openModal(`
-    <div class="modal-card wide">
-      <div class="modal-title-row"><h2>Your practices</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
-      <p class="muted small">Choose the days for each practice and an optional reminder time. Hidden practices keep their history.</p>
+    <div class="modal-card wide pe-card">
+      <div class="modal-title-row"><h2>Your habits</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <p class="muted small">“Yes / no” habits are ticked once; “Count” habits have a daily goal (8 glasses, 20 pages…). Choose days and an optional reminder. Hidden habits keep their history.</p>
       <div class="pe-list"></div>
-      <div class="modal-actions"><button class="btn ghost sm" data-pe="add">${icon('plus')}Add practice</button><span class="spacer"></span><button class="btn primary" data-m="cancel">Done</button></div>
+      <div class="pe-add">
+        <b class="small">Quick add</b>
+        <div class="pe-templates"></div>
+      </div>
+      <div class="modal-actions"><button class="btn ghost sm" data-pe="add">${icon('plus')}Custom habit</button><span class="spacer"></span><button class="btn primary" data-m="cancel">Done</button></div>
     </div>`, m => {
     draw(m);
     const get = el => state.practices.find(p => p.id === el.closest('[data-p]').dataset.p);
     m.addEventListener('click', e => {
       const dayBtn = e.target.closest('.pe-days [data-day]');
+      const tpl = e.target.closest('[data-tpl]');
       const act = e.target.closest('[data-pe]')?.dataset.pe;
       if (dayBtn) {
         const p = get(dayBtn);
@@ -1809,16 +1915,18 @@ function openPracticeEditor() {
         if (p.days.includes(i) && p.days.length === 1) { toast('Keep at least one day'); return; }
         commit(() => { p.days = p.days.includes(i) ? p.days.filter(x => x !== i) : [...p.days, i].sort(); });
         draw(m);
+      } else if (tpl) {
+        addHabit({ ...HABIT_TEMPLATES[+tpl.dataset.tpl] }, m);
+        toast(`Added ${HABIT_TEMPLATES[+tpl.dataset.tpl].name}`);
       } else if (act === 'archive' || act === 'restore') {
         const p = get(e.target);
         commit(() => { p.archived = act === 'archive'; });
         draw(m);
       } else if (act === 'add') {
-        const order = Math.max(-1, ...state.practices.map(p => p.order)) + 1;
-        commit(() => { state.practices.push(practiceFrom({ id: uid(), name: 'New practice', emoji: '✨', color: LIST_COLORS[order % LIST_COLORS.length], days: ALL_DAYS, order })); });
-        draw(m);
-        const rows = m.querySelectorAll('.pe-name');
-        rows[rows.length - 1]?.select();
+        const g = habitGroupFilter();
+        addHabit({ name: 'New habit', emoji: '✨', group: g === 'all' ? 'other' : g }, m);
+        const rows = m.querySelectorAll('.pe-row');
+        [...rows].find(r => r.querySelector('.pe-name').value === 'New habit')?.querySelector('.pe-name').select();
       }
     });
     m.addEventListener('change', e => {
@@ -1826,7 +1934,16 @@ function openPracticeEditor() {
       if (!f) return;
       const p = get(e.target);
       const v = e.target.value.trim();
-      commit(() => { if (f === 'name') p.name = v || p.name; if (f === 'emoji') p.emoji = v || '✨'; if (f === 'remind') p.remind = v || null; });
+      commit(() => {
+        if (f === 'name') p.name = v || p.name;
+        if (f === 'emoji') p.emoji = v || '✨';
+        if (f === 'remind') p.remind = v || null;
+        if (f === 'group') p.group = v;
+        if (f === 'type') { p.type = v; if (v === 'count' && p.target < 2) { p.target = 8; p.unit = p.unit || 'times'; } }
+        if (f === 'target') p.target = Math.max(1, Math.min(9999, parseInt(v, 10) || 1));
+        if (f === 'unit') p.unit = v.slice(0, 20);
+      });
+      if (f === 'type' || f === 'group') draw(m);
       if (f === 'remind' && v) askNotifyPermission();
     });
   });
@@ -2907,6 +3024,13 @@ async function handleAction(a, el, id) {
       break;
     }
     case 'sd-manage': openPracticeEditor(); break;
+    case 'sd-inc': case 'sd-dec': {
+      const p = state.practices.find(x => x.id === el.dataset.p);
+      const day = el.dataset.day || todayStr();
+      if (p) setHabitCount(p.id, day, countOf(day, p) + (a === 'sd-inc' ? habitStep(p) : -habitStep(p)));
+      break;
+    }
+    case 'hb-group': state.settings.habitGroup = el.dataset.g; save(); renderMain(); break;
     case 'join': { const t = getTask(id); if (t && t.link) openLink(t.link); break; }
     case 'goto-event': {
       const e = findEvent(el.dataset.ev);
@@ -3003,6 +3127,11 @@ function bindEvents() {
 
   // Inline "+ Add Task" rows
   const content = $('#content');
+  // Count habits: type a number directly
+  content.addEventListener('change', e => {
+    const inp = e.target.closest('[data-sd-count]');
+    if (inp) setHabitCount(inp.dataset.sdCount, inp.dataset.day || todayStr(), +inp.value);
+  });
   content.addEventListener('keydown', e => {
     const inp = e.target.closest('.inline-input');
     if (!inp) return;
@@ -3262,7 +3391,7 @@ function updateWidget() {
         const doneP = practices.filter(p => isDone(day, p.id)).length;
         const bits = [];
         if (window.Panchang) bits.push(Panchang.dayInfo(day).tithi.label);
-        if (practices.length) bits.push(`Sadhana ${doneP}/${practices.length}`);
+        if (practices.length) bits.push(`Habits ${doneP}/${practices.length}`);
         const bdays = (eventsByDate(day, day, ['birthdays'])[day] || []).map(e => `🎂 ${e.t.split("'")[0]}`);
         bits.push(...bdays);
         days[day] = {
