@@ -181,8 +181,9 @@ function meetingState(t, now = new Date()) {
   if (!isMeeting(t) || t.done || !t.due || !t.time || t.due !== ymd(now)) return null;
   const [h, m] = t.time.split(':').map(Number);
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m).getTime();
-  const end = start + meetingMinutes(t) * 60000;
-  const n = now.getTime();
+  return windowState(start, start + meetingMinutes(t) * 60000, now.getTime());
+}
+function windowState(start, end, n = Date.now()) {
   if (n >= start - 10 * 60000 && n <= end) return { state: 'live', mins: Math.round((start - n) / 60000), start, end };
   if (n < start && start - n <= 30 * 60000) return { state: 'soon', mins: Math.round((start - n) / 60000), start, end };
   return null;
@@ -206,6 +207,7 @@ function defaultSettings() {
   return {
     theme: 'system', accent: '#7b68ee', weekStart: 1, newOnTop: true, sort: {}, group: {}, modes: {}, defaultListId: null, lastView: null, notifyAsked: false,
     calLayers: { festivals: true, aol: true, ngo: true }, calSpace: 'all', spacesInit: false,
+    gcal: [], // connected Google / iCal calendars: { id, name, url, color, space }
     location: null, showPanchang: true, // device-only: sunrise/panchang location
 
   };
@@ -1130,7 +1132,7 @@ function groupHead(g, vm, collapsed, extraCls = '') {
 // Next few events from a space's own calendar (e.g. Art of Living), shown at the top of that list.
 function upcomingSpaceEvents(list) {
   const sp = spaceOf(list);
-  const sets = sp && sp.events ? sp.events.filter(layerOn) : [];
+  const sets = sp ? [...(sp.events || []), ...gcals().filter(c => c.space === sp.id).map(gcalSetId)].filter(layerOn) : [];
   if (!sets.length) return null;
   const T = todayStr();
   const map = eventsByDate(T, ymd(addDays(new Date(), 60)), sets);
@@ -1141,20 +1143,35 @@ function upcomingSpaceEvents(list) {
 function eventStrip(title, evs, withDates) {
   return `<section class="event-strip">
     <header>${esc(title)}</header>
-    <div class="es-items">${evs.map(e => `<button class="es-item" data-action="goto-event" data-ev="${e.id}" style="--ec:${setOf(e).color}">
+    <div class="es-items">${evs.map(e => `<button class="es-item ${e.k} ${e.k === 'gcal' && e.endMs < Date.now() ? 'past' : ''}" data-action="goto-event" data-ev="${e.id}" style="--ec:${colorOf(e)}">
       <span class="es-emoji">${emojiOf(e)}</span>
-      <span class="es-text"><b>${esc(e.t)}</b>${withDates ? `<span>${esc(fmtDate(e.d))}${e.time ? ' · ' + esc(fmtTime(e.time)) : ''}</span>` : e.k === 'holiday' ? '<span>Public holiday</span>' : `<span>${esc(setOf(e).name)}</span>`}</span>
+      <span class="es-text"><b>${esc(e.t)}</b>${withDates ? `<span>${esc(fmtDate(e.d))}${e.time ? ' · ' + esc(fmtTime(e.time)) : ''}</span>` : e.k === 'holiday' ? '<span>Public holiday</span>' : e.k === 'gcal' ? `<span>${esc(gcalWhen(e))} · ${esc(setOf(e).name)}</span>` : `<span>${esc(setOf(e).name)}</span>`}</span>
     </button>`).join('')}</div>
   </section>`;
 }
 
-// Meetings that are about to start or happening now, soonest first.
+// Meetings (tasks and Google events) that are about to start or happening now, soonest first.
 function upNextMeetings() {
   const now = new Date();
-  return state.tasks.map(t => ({ t, ms: meetingState(t, now) })).filter(x => x.ms).sort((a, b) => a.ms.start - b.ms.start);
+  const T = ymd(now);
+  const tasks = state.tasks.map(t => ({ t, ms: meetingState(t, now) })).filter(x => x.ms);
+  const sets = gcals().map(gcalSetId).filter(layerOn);
+  // Yesterday–tomorrow, so a call just after midnight (or one running past it) still shows
+  const byDay = eventsByDate(ymd(addDays(now, -1)), ymd(addDays(now, 1)), sets);
+  const evs = Object.values(byDay).flat().filter(e => !e.allDay).map(ev => ({ ev, ms: windowState(ev.startMs, ev.endMs, now.getTime()) })).filter(x => x.ms);
+  return [...tasks, ...evs].sort((a, b) => a.ms.start - b.ms.start);
 }
 function upNextBanner(list) {
-  return list.map(({ t, ms }) => {
+  return list.map(({ t, ev, ms }) => {
+    if (ev) {
+      const prov = ev.link ? callProvider(ev.link) : null;
+      const status = ms.state === 'live' ? (ms.mins > 0 ? `Starts in ${ms.mins} min` : 'Happening now') : `Starts in ${ms.mins} min`;
+      return `<div class="up-next ${ms.state}" style="--pc:${prov ? prov.color : colorOf(ev)}">
+        <span class="un-ico">${ev.link ? icon('video') : icon('calendar')}</span>
+        <div class="un-main" data-action="goto-event" data-ev="${ev.id}"><b>${esc(ev.t)}</b><span>${esc(status)} · ${esc(gcalWhen(ev))} · ${esc(setOf(ev).name)}${prov && prov.id !== 'link' ? ' · ' + esc(prov.name) : ''}</span></div>
+        ${ev.link ? `<button class="btn primary sm" data-action="ev-join" data-ev="${ev.id}">${icon('video')}${ms.state === 'live' ? 'Join now' : 'Join'}</button>` : ''}
+      </div>`;
+    }
     const prov = t.link ? callProvider(t.link) : null;
     const status = ms.state === 'live' ? (ms.mins > 0 ? `Starts in ${ms.mins} min` : 'Happening now') : `Starts in ${ms.mins} min`;
     return `<div class="up-next ${ms.state}" data-id="${t.id}" style="--pc:${prov ? prov.color : 'var(--accent)'}">
@@ -1378,12 +1395,15 @@ function eventsForYear(y) {
     }));
     (set.rules || []).forEach(r => out.push({ set: setId, d: ymd(r.date(y)), t: r.t, note: r.note, k: 'event' }));
   }
+  out.push(...gcalEventsForYear(y));
   out.forEach((e, i) => { e.id = `${y}:${i}`; });
   eventYears.set(y, out);
   return out;
 }
 const findEvent = id => eventsForYear(+id.split(':')[0]).find(e => e.id === id);
-const setOf = e => EVENT_SETS[e.set] || { name: e.set, emoji: '•', color: '#888' };
+const setInfo = id => EVENT_SETS[id] || gcalSet(id) || { name: id, emoji: '•', color: '#888' };
+const setOf = e => setInfo(e.set);
+const colorOf = e => e.color || setOf(e).color;
 const emojiOf = e => e.emoji || setOf(e).emoji;
 // Moon phase per day for highlighting cells (includes days whose moon event is merged into another event)
 function moonDays(from, to) {
@@ -1396,6 +1416,231 @@ function moonDays(from, to) {
 }
 // Sacred festivals are highlighted wherever the Art of Living calendar is in view
 const sacredOn = () => eventScope().includes('aol') && layerOn('aol');
+
+/* ---------- Google Calendar (any iCal feed: Google, Outlook, iCloud) ----------
+ * The feed list syncs in settings.gcal; fetched events are cached per device in localStorage.
+ * The Android app fetches feeds directly. Browsers can't (Google sends no CORS headers),
+ * so the website goes through the `ics-proxy` Supabase function for signed-in users. */
+const GCAL_KEY = 'doable:gcal';
+const GCAL_COLORS = ['#4285f4', '#33b679', '#e67c73', '#f6bf26', '#8e24aa', '#f4511e', '#039be5', '#616161'];
+const GCAL_STALE = 15 * 60000;
+const GCAL_PAST = 120, GCAL_AHEAD = 400; // days of events kept on the device
+let gcalCache = (() => { try { return JSON.parse(localStorage.getItem(GCAL_KEY)) || {}; } catch { return {}; } })();
+const gcalBusy = new Set();
+const gcals = () => state.settings.gcal || [];
+const gcalSetId = c => 'gcal:' + c.id;
+const gcalOf = setId => gcals().find(c => gcalSetId(c) === setId);
+function gcalSet(id) {
+  const c = typeof id === 'string' && id.startsWith('gcal:') && gcalOf(id);
+  return c ? { name: c.name, short: c.name, emoji: '📅', color: c.color, gcal: true } : null;
+}
+const gcalSetsIn = spaceIds => gcals().filter(c => !c.space || spaceIds.includes(c.space)).map(gcalSetId);
+const hhmm = ms => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+function saveGcalCache() {
+  try { localStorage.setItem(GCAL_KEY, JSON.stringify(gcalCache)); } catch (e) { console.warn('Could not cache calendar events', e); }
+}
+// Feed URLs as users paste them: webcal:// links, stray spaces
+function normalizeFeedUrl(raw) {
+  const s = String(raw || '').trim().replace(/^webcals?:\/\//i, 'https://');
+  try { const u = new URL(s); return u.protocol === 'https:' ? u.href : null; } catch { return null; }
+}
+function gcalEventsForYear(y) {
+  const out = [];
+  for (const c of gcals()) {
+    const cache = gcalCache[c.id];
+    if (!cache || cache.url !== c.url) continue;
+    for (const g of cache.events) {
+      const base = { set: gcalSetId(c), k: 'gcal', t: g.t, color: c.color, startMs: g.s, endMs: g.e, allDay: !!g.a, location: g.l || '', link: g.j || null };
+      if (g.a) {
+        // All-day events appear on every day they cover (end is exclusive)
+        for (let d = new Date(g.s), n = 0; d.getTime() < Math.max(g.e, g.s + 1) && n < 31; d = addDays(d, 1), n++) {
+          const day = ymd(d);
+          if (day.startsWith(y + '-')) out.push({ ...base, d: day });
+        }
+      } else {
+        const day = ymd(new Date(g.s));
+        if (day.startsWith(y + '-')) out.push({ ...base, d: day, time: hhmm(g.s), endTime: hhmm(g.e) });
+      }
+    }
+  }
+  return out;
+}
+const gcalWhen = e => (e.allDay ? 'All day' : `${fmtTime(e.time)}${e.endMs > e.startMs ? '–' + fmtTime(e.endTime) : ''}`);
+
+async function fetchFeed(url) {
+  const http = isNative && window.capacitorExports && window.capacitorExports.CapacitorHttp;
+  if (http) {
+    const r = await http.get({ url, responseType: 'text', connectTimeout: 15000, readTimeout: 30000 });
+    if (r.status >= 400) throw new Error(r.status === 404 ? 'Address not found — copy it again from Google Calendar' : `The calendar server said ${r.status}`);
+    return typeof r.data === 'string' ? r.data : String(r.data || '');
+  }
+  const cfg = window.DOABLE_CONFIG || {};
+  const S = window.DoableSync;
+  const token = S && S.user ? await S.accessToken() : null;
+  if (!cfg.supabaseUrl || !token) {
+    const err = new Error('On the website, sign in to Cloud sync to load this calendar. The Android app loads it directly.');
+    err.needsSync = true;
+    throw err;
+  }
+  const r = await fetch(`${cfg.supabaseUrl.replace(/\/$/, '')}/functions/v1/ics-proxy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: cfg.supabaseAnonKey },
+    body: JSON.stringify({ url }), // in the body, not the query string, so the secret address stays out of logs
+  });
+  if (!r.ok) {
+    const msg = await r.json().then(j => j.error).catch(() => '');
+    throw new Error(msg || (r.status === 404 ? 'The calendar proxy isn’t set up yet (see SETUP.md)' : `Couldn’t load the calendar (${r.status})`));
+  }
+  return r.text();
+}
+async function refreshGcal(c, { force } = {}) {
+  const cache = gcalCache[c.id];
+  const fresh = cache && cache.url === c.url && !cache.needsSync && Date.now() - (cache.checkedAt || 0) < GCAL_STALE;
+  if ((fresh && !force) || gcalBusy.has(c.id) || !window.Ics) return false;
+  const sig = x => (x ? JSON.stringify([x.url, x.error, x.events]) : '');
+  const before = sig(cache);
+  gcalBusy.add(c.id);
+  try {
+    const text = await fetchFeed(c.url);
+    if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error('That address didn’t return a calendar — use the iCal (.ics) address');
+    const feed = Ics.parseIcs(text);
+    const from = addDays(parseYmd(todayStr()), -GCAL_PAST).getTime();
+    const to = addDays(parseYmd(todayStr()), GCAL_AHEAD).getTime();
+    const events = Ics.eventsBetween(feed, from, to).slice(0, 5000).map(e => {
+      const g = { t: e.title, s: e.start, e: e.end };
+      if (e.allDay) g.a = 1;
+      if (e.location && !/^https?:\/\//i.test(e.location)) g.l = e.location.slice(0, 160);
+      if (e.link) g.j = e.link;
+      return g;
+    });
+    gcalCache[c.id] = { url: c.url, name: feed.name, events, fetchedAt: Date.now(), checkedAt: Date.now() };
+  } catch (e) {
+    const keep = cache && cache.url === c.url ? cache : { url: c.url, events: [] };
+    gcalCache[c.id] = { ...keep, checkedAt: Date.now(), error: e.message || String(e), needsSync: !!e.needsSync };
+  } finally {
+    gcalBusy.delete(c.id);
+    saveGcalCache();
+  }
+  return sig(gcalCache[c.id]) !== before;
+}
+// Fetch stale calendars (or all with force), then redraw without disturbing typing
+async function refreshAllGcal(opts) {
+  const list = gcals();
+  const gone = Object.keys(gcalCache).filter(id => !list.some(c => c.id === id));
+  if (gone.length) { gone.forEach(id => delete gcalCache[id]); saveGcalCache(); }
+  if (!list.length) return;
+  const changed = await Promise.all(list.map(c => refreshGcal(c, opts)));
+  if (changed.some(Boolean)) gcalRedraw();
+}
+function gcalRedraw() {
+  updateWidget();
+  const ae = document.activeElement;
+  if (ae && ae.matches('input, textarea, select') && !ae.closest('.modal')) return;
+  render({ keepDetails: true });
+  const card = document.querySelector('.gc-card');
+  if (card && !card.querySelector('input[name="url"]').value) openGcalManager(); // refresh statuses unless they're typing
+}
+function gcalStatus(c) {
+  const cache = gcalCache[c.id];
+  if (gcalBusy.has(c.id)) return { text: 'Loading…' };
+  if (!cache || cache.url !== c.url) return { text: 'Not loaded yet' };
+  const now = Date.now();
+  const upcoming = cache.events.filter(g => g.e >= now).length;
+  const loaded = cache.fetchedAt ? `${plural(upcoming, 'upcoming event')} · updated ${relTime(cache.fetchedAt)}` : '';
+  if (cache.error) return { text: cache.error + (loaded ? ` (showing ${loaded})` : ''), error: !cache.needsSync, info: cache.needsSync };
+  return { text: loaded };
+}
+
+function openGcalManager(editId) {
+  const list = gcals();
+  const editing = editId && list.find(c => c.id === editId);
+  const f = editing || { color: GCAL_COLORS.find(x => !list.some(c => c.color === x)) || GCAL_COLORS[0], space: '' };
+  const spaceOpts = sel => `<option value="" ${!sel ? 'selected' : ''}>All spaces</option>${SPACES.map(sp => { const l = spaceList(sp.id); return l ? `<option value="${sp.id}" ${sel === sp.id ? 'selected' : ''}>${esc(l.name)}</option>` : ''; }).join('')}`;
+  const webNote = !isNative && !(window.DoableSync && DoableSync.user)
+    ? `<p class="gc-note">${icon('cloud')}<span>On the website, calendars load once you’re signed in to Cloud sync. In the Android app they load straight away.</span></p>` : '';
+  openModal(`
+    <div class="modal-card wide gc-card">
+      <div class="modal-title-row"><h2>📅 Google Calendar</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <p class="muted small">See your Google meetings and events next to your tasks, with a Join button for Meet, Zoom and Teams. Read-only: add or change events in Google Calendar, and Doable picks them up within 15 minutes.</p>
+      ${list.length ? `<div class="gc-list">${list.map(c => {
+        const st = gcalStatus(c);
+        const l = c.space && spaceList(c.space);
+        return `<div class="gc-row" data-cal="${c.id}" style="--ec:${c.color}">
+          <i class="gc-dot"></i>
+          <div class="gc-main"><b>${esc(c.name)}</b><span class="${st.error ? 'gc-err' : st.info ? 'gc-info' : ''}">${esc(st.text)}</span><span class="gc-space">${l ? 'Shows in ' + esc(l.name) : 'Shows in all spaces'}</span></div>
+          <button class="icon-btn sm" data-gc="refresh" title="Refresh now" aria-label="Refresh ${esc(c.name)}">${icon('repeat')}</button>
+          <button class="icon-btn sm" data-gc="edit" title="Edit" aria-label="Edit ${esc(c.name)}">${icon('edit')}</button>
+          <button class="icon-btn sm danger" data-gc="delete" title="Disconnect" aria-label="Disconnect ${esc(c.name)}">${icon('trash')}</button>
+        </div>`;
+      }).join('')}</div>` : ''}
+      ${webNote}
+      <form class="gc-form" autocomplete="off">
+        <h3 class="set-h">${editing ? `Edit ${esc(editing.name)}` : list.length ? 'Connect another calendar' : 'Connect a calendar'}</h3>
+        <label class="gc-field"><span>Secret address in iCal format</span>
+          <input name="url" type="url" inputmode="url" spellcheck="false" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" value="${esc(f.url || '')}" required ${editing ? '' : 'autofocus'}></label>
+        <div class="gc-grid">
+          <label class="gc-field"><span>Name</span><input name="name" placeholder="e.g. Work" value="${esc(f.name || '')}" maxlength="40"></label>
+          <label class="gc-field"><span>Show in</span><select name="space">${spaceOpts(f.space)}</select></label>
+        </div>
+        <div class="gc-field"><span>Colour</span><div class="swatches">${GCAL_COLORS.map(x => `<button type="button" class="swatch-btn ${f.color === x ? 'on' : ''}" data-color="${x}" style="--c:${x}" aria-label="Colour ${x}"></button>`).join('')}</div></div>
+        <div class="row gap"><button class="btn primary sm" type="submit">${editing ? 'Save' : `${icon('plus')}Connect`}</button>${editing ? '<button class="btn ghost sm" type="button" data-gc="cancel-edit">Cancel</button>' : ''}</div>
+      </form>
+      <details class="gc-help" ${list.length ? '' : 'open'}>
+        <summary>Where do I find the address?</summary>
+        <ol>
+          <li>Open <a href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noopener">Google Calendar settings</a> on a computer.</li>
+          <li>Under <b>Settings for my calendars</b> on the left, pick the calendar, then <b>Integrate calendar</b>.</li>
+          <li>Copy <b>Secret address in iCal format</b> and paste it above. Repeat for each calendar you want.</li>
+        </ol>
+        <p class="muted small">Anyone with the secret address can read that calendar, so keep it private. Doable keeps it in your own account and uses it only to read your events. Outlook and iCloud calendar links (ICS / webcal) work too.</p>
+      </details>
+    </div>`, m => {
+    let color = f.color;
+    const form = m.querySelector('.gc-form');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const url = normalizeFeedUrl(fd.get('url'));
+      if (!url) { toast('Paste the calendar’s https:// or webcal:// address'); return; }
+      if (!editing && list.some(c => c.url === url)) { toast('That calendar is already connected'); return; }
+      const host = new URL(url).hostname;
+      const isGoogle = /(^|\.)google\.com$/.test(host);
+      const fallback = isGoogle ? (url.includes('holiday') ? 'Holidays' : 'Google Calendar') : host.replace(/^www\./, '');
+      const cal = { id: editing ? editing.id : uid(), name: String(fd.get('name') || '').trim() || (editing && editing.name) || fallback, url, color, space: String(fd.get('space') || '') || null };
+      const named = !!String(fd.get('name') || '').trim();
+      commit(() => {
+        const arr = [...gcals()];
+        const i = arr.findIndex(c => c.id === cal.id);
+        if (i >= 0) arr[i] = cal; else arr.push(cal);
+        state.settings.gcal = arr;
+        state.settings.calLayers = { ...(state.settings.calLayers || {}), [gcalSetId(cal)]: true };
+      });
+      openGcalManager();
+      refreshGcal(cal, { force: true }).then(() => {
+        // Use the calendar's own name (e.g. "Work") if the user didn't type one
+        const feedName = gcalCache[cal.id] && gcalCache[cal.id].name;
+        if (!named && !editing && feedName && feedName !== cal.name) commit(() => { state.settings.gcal = gcals().map(c => (c.id === cal.id ? { ...c, name: feedName.slice(0, 40) } : c)); });
+        gcalRedraw();
+        const st = gcalStatus(gcals().find(c => c.id === cal.id) || cal);
+        toast(st.error ? `Couldn’t load ${cal.name}: ${st.text}` : st.info ? 'Connected — it will load once you sign in to Cloud sync' : `Connected ${(gcals().find(c => c.id === cal.id) || cal).name} · ${st.text}`);
+      });
+    });
+    m.addEventListener('click', async e => {
+      const sw = e.target.closest('[data-color]');
+      if (sw) { color = sw.dataset.color; $$('[data-color]', m).forEach(b => b.classList.toggle('on', b === sw)); return; }
+      const act = e.target.closest('[data-gc]')?.dataset.gc;
+      const id = e.target.closest('[data-cal]')?.dataset.cal;
+      const c = id && gcals().find(x => x.id === id);
+      if (act === 'edit') openGcalManager(id);
+      if (act === 'cancel-edit') openGcalManager();
+      if (act === 'refresh' && c) { const p = refreshGcal(c, { force: true }); openGcalManager(); await p; gcalRedraw(); }
+      if (act === 'delete' && c) {
+        commit(() => { state.settings.gcal = gcals().filter(x => x.id !== id); }, { toast: `Disconnected ${c.name}` }); // cached events are pruned on the next refresh, so Undo is instant
+        openGcalManager();
+      }
+    });
+  });
+}
 
 /* ---------- Location (sunrise, sunset & panchang) ---------- */
 const DEFAULT_LOCATION = { name: 'Art of Living International Center', region: 'Bengaluru', lat: 12.83, lon: 77.51, source: 'default' };
@@ -1974,7 +2219,7 @@ function eventScope() {
   if (v.type === 'list') spaces = SPACES.filter(s => s.id === (getList(v.id) || {}).space);
   else if (v.type === 'smart' && v.id === 'calendar' && state.settings.calSpace !== 'all') spaces = SPACES.filter(s => s.id === state.settings.calSpace);
   else if (v.type === 'tag' || ui.search || v.id === 'completed') return [];
-  return ['festivals', ...spaces.flatMap(s => s.events || [])];
+  return ['festivals', ...spaces.flatMap(s => s.events || []), ...gcalSetsIn(spaces.map(s => s.id))];
 }
 const layerOn = id => (state.settings.calLayers || {})[id] !== false;
 function eventsByDate(from, to, sets = eventScope().filter(layerOn)) {
@@ -1987,16 +2232,21 @@ function eventsByDate(from, to, sets = eventScope().filter(layerOn)) {
   Object.values(map).forEach(a => a.sort((x, z) => rank(x) - rank(z) || (x.time || '').localeCompare(z.time || '')));
   return map;
 }
-const evPill = e => `<span class="ev-pill ${e.k} ${e.sacred && sacredOn() ? 'sacred' : ''}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name)}">${emojiOf(e)} ${esc(e.t)}</span>`;
+const evPill = e => `<span class="ev-pill ${e.k} ${e.sacred && sacredOn() ? 'sacred' : ''}" style="--ec:${colorOf(e)}" title="${esc(setOf(e).name)}">${emojiOf(e)} ${e.time ? esc(fmtTime(e.time)) + ' ' : ''}${esc(e.t)}</span>`;
 function dayEventsBlock(evs) {
   if (!evs || !evs.length) return '';
   return `<div class="day-events">${evs.map(e => {
     const s = setOf(e);
     const sacred = e.sacred && sacredOn();
-    const meta = [s.name, sacred && 'Sacred day', e.time && fmtTime(e.time), e.k === 'holiday' && 'Public holiday', e.k === 'deadline' && 'Deadline', e.tentative && 'Date may change'].filter(Boolean).join(' · ');
-    return `<div class="day-ev ${e.k} ${sacred ? 'sacred' : ''}" style="--ec:${s.color}">
+    const meta = e.k === 'gcal'
+      ? [gcalWhen(e), s.name, e.link && (callProvider(e.link) || {}).name].filter(Boolean).join(' · ')
+      : [s.name, sacred && 'Sacred day', e.time && fmtTime(e.time), e.k === 'holiday' && 'Public holiday', e.k === 'deadline' && 'Deadline', e.tentative && 'Date may change'].filter(Boolean).join(' · ');
+    const note = e.k === 'gcal' ? e.location && `📍 ${e.location}` : e.note;
+    const live = e.k === 'gcal' && !e.allDay && windowState(e.startMs, e.endMs);
+    return `<div class="day-ev ${e.k} ${sacred ? 'sacred' : ''} ${e.k === 'gcal' && e.endMs < Date.now() ? 'past' : ''}" style="--ec:${colorOf(e)}">
       <span class="de-emoji" aria-hidden="true">${emojiOf(e)}</span>
-      <div class="de-main"><b>${esc(e.t)}</b><span class="de-meta">${esc(meta)}</span>${e.note ? `<span class="de-note">${esc(e.note)}</span>` : ''}</div>
+      <div class="de-main"><b>${esc(e.t)}</b><span class="de-meta">${esc(meta)}</span>${note ? `<span class="de-note">${esc(note)}</span>` : ''}</div>
+      ${e.link && e.endMs >= Date.now() ? `<button class="join-chip ${live ? live.state : ''}" data-action="ev-join" data-ev="${e.id}" style="--pc:${(callProvider(e.link) || {}).color}" title="Join: ${esc(e.link)}">${icon('video')}<span>${live && live.state === 'live' ? 'Join now' : 'Join'}</span></button>` : ''}
       ${e.personId ? `<button class="btn primary sm wish-btn" data-action="wish" data-person="${e.personId}" data-kind="${e.k}" title="Send wishes on WhatsApp">${icon('sparkles')}<span>Wish</span></button>` : ''}
       <button class="btn ghost sm" data-action="plan-event" data-ev="${e.id}" title="Create a task for this">${icon('plus')}<span>Plan</span></button>
     </div>`;
@@ -2006,7 +2256,8 @@ function planEvent(id) {
   const e = findEvent(id);
   if (!e) return;
   const v = ui.view;
-  const sp = SPACES.find(s => (s.events || []).includes(e.set));
+  const gc = gcalOf(e.set);
+  const sp = gc ? SPACES.find(s => s.id === gc.space) : SPACES.find(s => (s.events || []).includes(e.set));
   let list = sp && spaceList(sp.id);
   if (!list && v.type === 'list') list = getList(v.id);
   if (!list && v.type === 'smart' && v.id === 'calendar' && state.settings.calSpace !== 'all') list = spaceList(state.settings.calSpace);
@@ -2024,9 +2275,10 @@ function calendarFilters() {
       <button class="space-chip ${cur === 'all' ? 'on' : ''}" data-action="cal-space" data-space="all">All</button>
       ${SPACES.map(s => { const l = spaceList(s.id); return l ? `<button class="space-chip ${cur === s.id ? 'on' : ''}" data-action="cal-space" data-space="${s.id}" style="--c:${l.color}"><i></i>${esc(l.name)}</button>` : ''; }).join('')}
     </div>` : '';
-  const layers = scope.length ? `<div class="cal-layers">${scope.map(id => { const s = EVENT_SETS[id] || {}; return `<button class="layer-chip ${layerOn(id) ? 'on' : ''}" data-action="cal-layer" data-layer="${id}" style="--ec:${s.color}" aria-pressed="${layerOn(id)}" title="Show ${esc(s.name || id)}">${s.emoji || ''} ${esc(s.short || s.name || id)}</button>`; }).join('')}</div>` : '';
+  const connect = isCalView && !gcals().length ? `<button class="layer-chip gc-connect" data-action="gcal" title="Show your Google Calendar events here">${icon('plus')} Google Calendar</button>` : '';
+  const layers = scope.length ? `<div class="cal-layers">${scope.map(id => { const s = setInfo(id); return `<button class="layer-chip ${layerOn(id) ? 'on' : ''}" data-action="cal-layer" data-layer="${id}" style="--ec:${s.color}" aria-pressed="${layerOn(id)}" title="Show ${esc(s.name || id)}">${s.emoji || ''} ${esc(s.short || s.name || id)}</button>`; }).join('')}${connect}</div>` : '';
   const legend = (scope.includes('moon') && layerOn('moon')) || sacredOn()
-    ? `<div class="cal-legend">${scope.includes('moon') && layerOn('moon') ? '<span><i class="lg-full"></i>🌕 Purnima</span><span><i class="lg-new"></i>🌑 Amavasya</span>' : ''}${sacredOn() ? '<span>✨ Sacred day</span>' : ''}<span class="muted">Moon days follow Bengaluru sunrise; local panchangs can differ by a day.</span></div>`
+    ? `<div class="cal-legend">${scope.includes('moon') && layerOn('moon') ? '<span><i class="lg-full"></i>🌕 Purnima</span><span><i class="lg-new"></i>🌑 Amavasya</span>' : ''}${sacredOn() ? '<span>✨ Sacred day</span>' : ''}<span class="muted">Moon days follow sunrise in ${esc(currentLocation().source === 'default' ? currentLocation().region : currentLocation().name)}; local panchangs can differ by a day.</span></div>`
     : '';
   return spaces || layers ? `<div class="cal-filters">${spaces}${layers}</div>${legend}` : '';
 }
@@ -2054,7 +2306,9 @@ function renderCalendar(vm) {
     const outside = d.getMonth() !== m.getMonth();
     const chips = [
       ...dayEvs.filter(e => !(e.k.startsWith('moon') && e.t.startsWith(e.k === 'moon-full' ? 'Purnima' : 'Amavasya'))) // plain moon days show as a badge, not a chip
-        .map(e => `<div class="cal-ev ${e.k} ${e.sacred && sacred ? 'sacred' : ''}" style="--ec:${setOf(e).color}" title="${esc(setOf(e).name + ': ' + e.t)}"><span class="ev-emo">${emojiOf(e)} </span>${esc(e.t)}</div>`),
+        .map(e => e.k === 'gcal'
+          ? `<div class="cal-ev gcal" style="--ec:${colorOf(e)}" title="${esc(`${setOf(e).name}: ${e.t} · ${gcalWhen(e)}`)}">${e.link ? icon('video', 'cal-vid') : ''}${e.time ? `<span class="cal-time">${esc(fmtTime(e.time))}</span>` : ''}${esc(e.t)}</div>`
+          : `<div class="cal-ev ${e.k} ${e.sacred && sacred ? 'sacred' : ''}" style="--ec:${colorOf(e)}" title="${esc(setOf(e).name + ': ' + e.t)}"><span class="ev-emo">${emojiOf(e)} </span>${esc(e.t)}</div>`),
       ...items.map(t => `<div class="cal-task ${t.done ? 'done' : ''} ${isMeeting(t) ? 'meeting' : ''}" style="--sc:${statusOf(t.status).color}" data-id="${t.id}" data-action="open" draggable="true" title="${esc(t.title)}${t.link ? ' · ' + esc((callProvider(t.link) || {}).name || '') : ''}">${isMeeting(t) ? icon('video', 'cal-vid') : ''}${t.time ? `<span class="cal-time">${esc(fmtTime(t.time))}</span>` : ''}${esc(t.title)}</div>`),
     ];
     const holiday = dayEvs.some(e => e.k === 'holiday');
@@ -2680,6 +2934,10 @@ function openSettings() {
         <button class="btn ghost sm" data-act="widget">${icon('plus')}Add to home screen</button>
       </div>` : ''}
       <div class="set-row">
+        <div><b>Google Calendar</b><div class="muted small">${gcals().length ? `${esc(gcals().map(c => c.name).join(', '))} · events show on your calendar` : 'See your Google events and meetings next to your tasks'}</div></div>
+        <button class="btn ghost sm" data-act="gcal">📅 ${gcals().length ? 'Manage' : 'Connect'}</button>
+      </div>
+      <div class="set-row">
         <div><b>Birthdays & anniversaries</b><div class="muted small">${state.people.length ? peopleCount(state.people.length) + ' saved' : 'Add people or import from Google Contacts'}</div></div>
         <button class="btn ghost sm" data-act="people">🎂 Manage</button>
       </div>
@@ -2715,6 +2973,7 @@ function openSettings() {
       if (act === 'account') openAccount();
       if (act === 'location') openLocationPicker();
       if (act === 'people') openPeopleManager();
+      if (act === 'gcal') openGcalManager();
       if (act === 'widget' && native.WidgetBridge) {
         updateWidget();
         const r = await native.WidgetBridge.pin().catch(() => ({ requested: false }));
@@ -3008,6 +3267,8 @@ async function handleAction(a, el, id) {
       break;
     }
     case 'plan-event': planEvent(el.dataset.ev); break;
+    case 'ev-join': { const e = findEvent(el.dataset.ev); if (e && e.link) openLink(e.link); break; }
+    case 'gcal': openGcalManager(); break;
     case 'pick-location': openLocationPicker(); break;
     case 'people': openPeopleManager(); break;
     case 'wish': {
@@ -3344,7 +3605,7 @@ function bindEvents() {
   // Keep "Starts in N min" / "Join now" current without interrupting typing
   let meetSig = '';
   setInterval(() => {
-    const sig = upNextMeetings().map(({ t, ms }) => t.id + ms.state + ms.mins).join('|');
+    const sig = upNextMeetings().map(({ t, ev, ms }) => (t ? t.id : ev.t + ev.startMs) + ms.state + ms.mins).join('|');
     if (sig === meetSig) return;
     meetSig = sig;
     const ae = document.activeElement;
@@ -3387,6 +3648,13 @@ function updateWidget() {
         }));
         const meetings = state.tasks.filter(t => isMeeting(t) && !t.done && t.due === day && t.time && (offset > 0 || endTime(t) > `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`)).sort((a, b) => a.time.localeCompare(b.time));
         const m = meetings[0];
+        // A Google meeting that starts before the next Doable meeting takes the "Next" slot
+        const nowMs = Date.now();
+        const gNext = (eventsByDate(day, day, gcals().map(gcalSetId).filter(layerOn))[day] || []).filter(e => !e.allDay && e.endMs > nowMs).sort((a, b) => a.startMs - b.startMs)[0];
+        const mStart = m ? parseYmd(day).setHours(...m.time.split(':').map(Number)) : Infinity;
+        const next = gNext && gNext.startMs < mStart
+          ? { t: gNext.t, meta: `${fmtTime(gNext.time)}${gNext.link ? ' · ' + ((callProvider(gNext.link) || {}).name || 'call') : ' · ' + setOf(gNext).name}`, url: gNext.link && isCallUrl(gNext.link) ? `doable://join/${encodeURIComponent(gNext.link)}` : 'doable://today' }
+          : m ? { t: m.title || 'Meeting', meta: `${fmtTime(m.time)}${m.link ? ' · ' + ((callProvider(m.link) || {}).name || 'call') : ''}`, url: `doable://task/${m.id}` } : null;
         const practices = activePractices().filter(p => scheduledOn(p, day));
         const doneP = practices.filter(p => isDone(day, p.id)).length;
         const bits = [];
@@ -3398,7 +3666,7 @@ function updateWidget() {
           label: parseYmd(day).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' }) + (top.length ? ` · ${top.length} to do` : ''),
           items,
           more: Math.max(0, sorted.length - items.length),
-          next: m ? { t: m.title || 'Meeting', meta: `${fmtTime(m.time)}${m.link ? ' · ' + ((callProvider(m.link) || {}).name || 'call') : ''}`, url: `doable://task/${m.id}` } : null,
+          next,
           footer: bits.join('  ·  '),
           empty: offset === 0 ? 'Nothing due today ✨' : 'Nothing planned',
         };
@@ -3407,11 +3675,18 @@ function updateWidget() {
     } catch (e) { console.warn('Widget update failed', e); }
   }, 800);
 }
-// Links from the widget: doable://today, doable://quickadd, doable://task/<id>
+// Links from the widget: doable://today, doable://quickadd, doable://task/<id>, doable://join/<meeting link>
 function handleAppUrl(url) {
   const m = String(url || '').match(/^doable:\/\/([^/?#]+)\/?([^?#]*)/);
   if (!m) return;
   closeModal();
+  if (m[1] === 'join') {
+    navigate('smart:today');
+    let link = null;
+    try { link = safeUrl(decodeURIComponent(m[2])); } catch { /* malformed */ }
+    if (link && isCallUrl(link)) openLink(link); // only video-call links, never arbitrary pages
+    return;
+  }
   if (m[1] === 'quickadd') { navigate('smart:today'); setTimeout(focusQuickAdd, 150); }
   else if (m[1] === 'task' && getTask(m[2])) openDetails(m[2]);
   else navigate('smart:today');
@@ -3488,7 +3763,7 @@ function bindNative() {
     if (viewKey() !== 'smart:today') return navigate('smart:today');
     native.App.minimizeApp();
   });
-  native.App.addListener('resume', () => { checkReminders(); updateWidget(); if (window.DoableSync) DoableSync.syncNow(); });
+  native.App.addListener('resume', () => { checkReminders(); updateWidget(); refreshAllGcal(); if (window.DoableSync) DoableSync.syncNow(); });
   native.App.addListener('appUrlOpen', ev => handleAppUrl(ev && ev.url));
   native.App.getLaunchUrl().then(r => { if (r && r.url) handleAppUrl(r.url); }).catch(() => {});
   updateWidget();
@@ -3506,7 +3781,7 @@ function bindNative() {
 }
 
 /* ---------- Cloud sync ---------- */
-const SYNCED_SETTINGS = ['accent', 'weekStart', 'newOnTop', 'sort', 'group', 'defaultListId', 'calLayers', 'spacesInit', 'sadhanaInit'];
+const SYNCED_SETTINGS = ['accent', 'weekStart', 'newOnTop', 'sort', 'group', 'defaultListId', 'calLayers', 'spacesInit', 'sadhanaInit', 'gcal'];
 
 // Local state as sync records: one per task and list, plus shared settings and stats.
 function syncRecords() {
@@ -3549,6 +3824,7 @@ function applyRemote(rows, replace = false) {
       changed = true;
     } else if (r.kind === 'settings' && !r.deleted) {
       SYNCED_SETTINGS.forEach(k => { if (d[k] !== undefined && d[k] !== null) state.settings[k] = d[k]; });
+      setTimeout(() => refreshAllGcal(), 0); // only fetches calendars that are new or stale
       changed = true;
     } else if (r.kind === 'stats' && !r.deleted) {
       const c = state.stats.completions;
@@ -3630,8 +3906,12 @@ function syncPill() {
     <i class="sp-dot"></i>
   </button>`;
 }
+let syncUserId = null;
 function onSyncStatus() {
   renderSidebar();
+  const uidNow = DoableSync.user && DoableSync.user.id;
+  if (uidNow && uidNow !== syncUserId) setTimeout(() => refreshAllGcal(), 0); // the website loads calendars via the signed-in proxy
+  syncUserId = uidNow || null;
   const card = $('#modalRoot [data-account]');
   if (card && card.dataset.account === 'in') {
     const st = $('.acct-status', card);
@@ -3785,6 +4065,9 @@ if (!authHash && !applyHash()) syncHash();
 addEventListener('hashchange', applyHash);
 checkReminders();
 refreshLocationIfAllowed();
+refreshAllGcal();
+setInterval(() => { if (document.visibilityState === 'visible') refreshAllGcal(); }, 5 * 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshAllGcal(); });
 if (window.DoableSync) {
   DoableSync.init({
     records: syncRecords,

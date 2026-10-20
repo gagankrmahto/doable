@@ -47,6 +47,12 @@ Total time: about 15 minutes, once.
    };
    ```
 7. Commit and push. The website redeploys with sync switched on.
+8. **Google Calendar on the website** (optional; the Android app doesn't need this). Browsers aren't allowed to read Google's calendar feed directly, so the website asks a small Supabase function to fetch it. The function only works for signed-in users and only reads Google, Outlook, iCloud, Zoho and Yahoo calendar addresses. Deploy it once from this folder:
+   ```bash
+   npx supabase login
+   npx supabase functions deploy ics-proxy --project-ref <your-project-ref>
+   ```
+   The project ref is the `xxxxxxxx` part of your Project URL.
 
 > Free Supabase projects pause after about a week with **no** activity at all. Normal daily use keeps it awake. If it ever pauses, click **Restore** in the dashboard; nothing is lost, and the apps keep working offline meanwhile.
 

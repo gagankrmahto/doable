@@ -303,6 +303,12 @@
   Sync.signUp = (email, password) => client.auth.signUp({ email, password, options: { emailRedirectTo: redirectUrl() } });
   Sync.resetPassword = email => client.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl() });
   Sync.updatePassword = password => client.auth.updateUser({ password });
+  // Signed-in user's token, for Doable's own server functions (e.g. the calendar feed proxy)
+  Sync.accessToken = async () => {
+    if (!client) return null;
+    const { data } = await client.auth.getSession();
+    return (data && data.session && data.session.access_token) || null;
+  };
   Sync.signOut = async () => {
     end();
     localStore.clear();

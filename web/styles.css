@@ -982,6 +982,42 @@ button.inline-add:hover { color: var(--accent); background: var(--accent-softer)
 .loc-item span { color: var(--text-3); font-weight: 500; font-size: 12.5px; }
 .loc-item:hover { background: var(--accent-softer); }
 
+/* Google Calendar */
+.cal-ev.gcal { display: flex; align-items: center; gap: 3px; border-left: 3px solid var(--ec); border-radius: 4px; padding-left: 5px; color: var(--text); background: color-mix(in srgb, var(--ec) 13%, var(--surface)); }
+.cal-ev.gcal .cal-time { margin-right: 1px; }
+.cal-ev.gcal .cal-vid { color: var(--ec); }
+.day-ev.gcal { align-items: center; border-left: 4px solid var(--ec); }
+.day-ev.gcal .de-meta { color: var(--text-2); }
+.es-item.gcal { border-left: 3px solid var(--ec); }
+.es-item.gcal.past, .day-ev.gcal.past { opacity: .55; }
+.layer-chip.gc-connect { border-style: dashed; color: #4285f4; opacity: 1; text-decoration: none; }
+.layer-chip.gc-connect .i { width: 12px; height: 12px; }
+.gc-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; }
+.gc-row { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--line); }
+.gc-row:last-child { border-bottom: 0; }
+.gc-dot { width: 12px; height: 12px; border-radius: 4px; background: var(--ec); flex: none; }
+.gc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gc-main span { font-size: 12px; color: var(--text-2); }
+.gc-main .gc-space { color: var(--text-3); }
+.gc-main .gc-err { color: var(--danger); }
+.gc-main .gc-info { color: color-mix(in srgb, #4285f4 70%, var(--text)); }
+.gc-note { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; color: var(--text-2); background: color-mix(in srgb, #4285f4 9%, var(--surface)); }
+.gc-note .i { width: 16px; height: 16px; flex: none; color: #4285f4; margin-top: 1px; }
+.gc-form { display: flex; flex-direction: column; gap: 10px; }
+.gc-form .set-h { margin: 4px 0 0; }
+.gc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gc-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.gc-field > span { font-size: 12px; font-weight: 650; color: var(--text-2); }
+.gc-field input, .gc-field select { height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; min-width: 0; outline: none; color: var(--text); }
+.gc-field input:focus, .gc-field select:focus { border-color: var(--accent); }
+.gc-field .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.gc-help { font-size: 13px; color: var(--text-2); padding: 10px 14px; border-radius: 12px; background: var(--surface-2); }
+.gc-help summary { cursor: pointer; font-weight: 650; color: var(--text); }
+.gc-help ol { margin: 8px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.gc-help a { color: var(--accent); }
+.gc-help p { margin: 0; }
+@media (max-width: 560px) { .gc-grid { grid-template-columns: 1fr; } }
+
 /* Meetings */
 .join-chip {
   --pc: var(--accent);
