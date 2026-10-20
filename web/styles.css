@@ -782,6 +782,44 @@ button.inline-add:hover { color: var(--accent); background: var(--accent-softer)
 .lg-full { background: radial-gradient(circle at 70% 30%, rgba(246, 210, 120, .9), rgba(246, 210, 120, .2)); }
 .lg-new { background: radial-gradient(circle at 70% 30%, rgba(110, 96, 200, .7), rgba(110, 96, 200, .15)); }
 
+/* Daily panchang strip */
+.panchang {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, #f6c453 10%, var(--surface)), color-mix(in srgb, #8b7bd8 8%, var(--surface)));
+  border: 1px solid color-mix(in srgb, #d4a017 22%, var(--border));
+}
+.panchang.compact { margin: 2px 0 10px; }
+.pc-loc { display: inline-flex; align-items: center; gap: 5px; align-self: center; flex: none; height: 30px; padding: 0 10px; border-radius: 15px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text-2); max-width: 180px; }
+.pc-loc span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-loc .i { width: 13px; height: 13px; flex: none; }
+.pc-loc .i:first-child { color: var(--danger); }
+.pc-loc:hover { border-color: var(--accent); }
+.pc-items { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+.pc-item { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; line-height: 1; }
+.pc-item > .i { width: 17px; height: 17px; color: #c98a00; }
+.pc-item > span { display: flex; flex-direction: column; gap: 2px; }
+.pc-item b { font-size: 12.5px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.pc-item small { font-size: 10.5px; color: var(--text-3); font-weight: 600; white-space: nowrap; }
+.cal-ev.vrat { background: color-mix(in srgb, #8b7bd8 13%, transparent); color: color-mix(in srgb, #6b5bd0 75%, var(--text)); }
+.day-ev.vrat { --ec: #8b7bd8; }
+
+/* Location picker */
+.loc-current { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; background: var(--surface-2); }
+.loc-current > .i { width: 22px; height: 22px; color: var(--danger); }
+.loc-current div { display: flex; flex-direction: column; }
+.loc-current span { font-size: 12px; color: var(--text-3); }
+.loc-gps { justify-content: center; }
+.loc-results { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; margin-top: -4px; border: 1px solid var(--border); border-radius: 10px; }
+.loc-item { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; text-align: left; font-weight: 600; border-bottom: 1px solid var(--line); }
+.loc-item:last-child { border-bottom: 0; }
+.loc-item span { color: var(--text-3); font-weight: 500; font-size: 12.5px; }
+.loc-item:hover { background: var(--accent-softer); }
+
 /* Meetings */
 .join-chip {
   --pc: var(--accent);
@@ -1146,6 +1184,11 @@ body.details-open .details { display: grid; position: fixed; inset: 0; z-index: 
   .space-chip, .layer-chip { height: 28px; padding: 0 10px; font-size: 12px; }
   .gh-events { display: none; }
   .day-ev .btn span { display: none; }
+  /* Panchang strip: location on top, values in a 2-column grid */
+  .panchang { flex-direction: column; gap: 8px; }
+  .pc-loc { align-self: flex-start; }
+  .pc-items { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  .pc-item.tithi { grid-column: 1 / -1; }
   .cal-time { display: none; }
   .cal-more { font-size: 9px; padding: 0 2px; text-align: center; }
   .cal-dow { padding: 6px 2px; text-align: center; font-size: 10px; }

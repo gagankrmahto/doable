@@ -72,6 +72,9 @@ const ICONS = {
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
   video: '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  mapPin: '<path d="M20 10c0 4.99-5.54 10.19-7.4 11.79a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  sunrise: '<path d="M12 2v6M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M8 6l4-4 4 4M16 18a4 4 0 0 0-8 0"/>',
+  sunset: '<path d="M12 10V2M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M16 6l-4 4-4-4M16 18a4 4 0 0 0-8 0"/>',
   hourglass: '<path d="M5 22h14M5 2h14M17 22v-4.17a2 2 0 0 0-.59-1.42L12 12l-4.41 4.41A2 2 0 0 0 7 17.83V22M7 2v4.17a2 2 0 0 0 .59 1.42L12 12l4.41-4.41A2 2 0 0 0 17 6.17V2"/>',
 };
 const icon = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -200,6 +203,8 @@ function defaultSettings() {
   return {
     theme: 'system', accent: '#7b68ee', weekStart: 1, newOnTop: true, sort: {}, group: {}, modes: {}, defaultListId: null, lastView: null, notifyAsked: false,
     calLayers: { festivals: true, aol: true, ngo: true }, calSpace: 'all', spacesInit: false,
+    location: null, showPanchang: true, // device-only: sunrise/panchang location
+
   };
 }
 
@@ -793,7 +798,7 @@ function viewModel() {
       const total = active.length + completed.length;
       return {
         title: 'Today', icon: 'sun', showList: true, groups, completed, modes: ['list', 'board', 'calendar'], boardTasks: [...active, ...completed],
-        calTasks: top.filter(t => t.due), banner: eventsByDate(T, T)[T], upNext: upNextMeetings(),
+        calTasks: top.filter(t => t.due), banner: eventsByDate(T, T)[T], upNext: upNextMeetings(), panchang: T,
         subtitle: new Date().toLocaleDateString(LOCALE, { weekday: 'long', month: 'long', day: 'numeric' }),
         progress: total ? { done: completed.length, total } : null,
         empty: completed.length
@@ -1095,6 +1100,7 @@ function renderList(vm) {
   const hasActive = vm.groups.some(g => g.tasks.length);
   let html = '';
   if (vm.upNext && vm.upNext.length) html += upNextBanner(vm.upNext);
+  if (vm.panchang) html += panchangStrip(vm.panchang);
   if (vm.banner && vm.banner.length) html += eventStrip('Today', vm.banner, false);
   if (vm.comingUp) html += eventStrip(`Coming up · ${setOf(vm.comingUp[0]).name}`, vm.comingUp, true);
   if (!hasActive && !vm.hideEmpty && vm.empty) {
@@ -1232,7 +1238,9 @@ function renderBoard(vm) {
 /* ---------- Event calendars: Indian festivals, Art of Living, NGO planning days ---------- */
 const EVENT_SETS = window.DOABLE_EVENT_SETS || {};
 const FESTIVALS = window.DOABLE_FESTIVALS || [];
-const eventYears = new Map();
+const eventYears = new Map(); // cleared when the location changes (moon days depend on it)
+const clock = date => date.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' });
+const clockOn = (date, day) => clock(date) + (ymd(date) !== day ? ` (${fmtShort(ymd(date))})` : '');
 function eventsForYear(y) {
   if (eventYears.has(y)) return eventYears.get(y);
   const out = [];
@@ -1241,19 +1249,29 @@ function eventsForYear(y) {
   fest.forEach(f => out.push({ set: 'festivals', d: f.d, t: f.t, k: f.k, tentative: !!f.tentative, sacred: !!(sacredRe && sacredRe.test(f.t)) }));
   for (const [setId, set] of Object.entries(EVENT_SETS)) {
     if (setId === 'festivals') continue;
-    if (set.moonPhases && window.MoonPhases) {
+    if (set.moonPhases && window.Panchang) {
       const nearFest = (re, d, offset = 0) => fest.find(f => re.test(f.t) && f.d === ymd(addDays(parseYmd(d), offset)));
       const aolPurnimaDays = new Set(((EVENT_SETS.aol || {}).dated || []).filter(e => /Purnima/.test(e.t)).map(e => e.d));
-      for (const p of MoonPhases.phases(y)) {
+      for (const p of Panchang.phases(y)) {
         const base = set[p.type];
         const named = (set.names || []).find(n => n.type === p.type && nearFest(n.match, p.d, n.offset || 0));
         // Guru Purnima is already on the Art of Living calendar; the day is still marked as a full moon
-        if (p.type === 'full' && aolPurnimaDays.has(p.d) && !named) { out.push({ set: setId, d: p.d, t: 'Full moon', k: 'moon-full', hidden: true, istTime: p.istTime }); continue; }
-        const timeTxt = fmtTime(p.istTime) + (p.istDate !== p.d ? ` on ${fmtShort(p.istDate)}` : '');
+        if (p.type === 'full' && aolPurnimaDays.has(p.d) && !named) { out.push({ set: setId, d: p.d, t: 'Full moon', k: 'moon-full', hidden: true }); continue; }
         out.push({
           set: setId, d: p.d, k: p.type === 'full' ? 'moon-full' : 'moon-new', emoji: p.type === 'full' ? '🌕' : '🌑',
-          t: named ? named.t : base.t, istTime: p.istTime,
-          note: (named && named.note ? named.note + ' ' : '') + base.note.replace('{time}', timeTxt),
+          t: named ? named.t : base.t,
+          note: (named && named.note ? named.note + ' ' : '') + base.note.replace('{time}', clockOn(p.utc, p.d)),
+        });
+      }
+      // Ekadashi, Pradosh, Masik Shivaratri
+      for (const s of Panchang.specialDays(y)) {
+        if (s.kind === 'shivaratri' && fest.some(f => f.t === 'Maha Shivaratri' && f.d === s.d)) continue;
+        const conf = (set.special || {})[s.kind];
+        if (!conf) continue;
+        const info = Panchang.dayInfo(s.d);
+        out.push({
+          set: setId, d: s.d, k: 'vrat', emoji: conf.emoji, t: conf.t.replace('{paksha}', s.paksha),
+          note: conf.note.replace('{until}', clockOn(info.tithi.endsAt, s.d)).replace('{sunset}', clock(info.sunset)),
         });
       }
       continue;
@@ -1286,6 +1304,103 @@ function moonDays(from, to) {
 // Sacred festivals are highlighted wherever the Art of Living calendar is in view
 const sacredOn = () => eventScope().includes('aol') && layerOn('aol');
 
+/* ---------- Location (sunrise, sunset & panchang) ---------- */
+const DEFAULT_LOCATION = { name: 'Art of Living International Center', region: 'Bengaluru', lat: 12.83, lon: 77.51, source: 'default' };
+const currentLocation = () => state.settings.location || DEFAULT_LOCATION;
+const CITIES = (window.DOABLE_CITIES || []).map(([name, region, lat, lon]) => ({ name, region, lat, lon }));
+function distanceKm(a, b) {
+  const r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+function nearestCity(lat, lon) {
+  let best = null;
+  for (const c of CITIES) { const km = distanceKm({ lat, lon }, c); if (!best || km < best.km) best = { ...c, km }; }
+  return best;
+}
+function applyLocation() {
+  if (window.Panchang) Panchang.setLocation(currentLocation());
+  eventYears.clear();
+}
+function setLocation(l, { quiet } = {}) {
+  // ~1 km precision is plenty for sunrise times and keeps the exact position private
+  state.settings.location = { ...l, lat: Math.round(l.lat * 100) / 100, lon: Math.round(l.lon * 100) / 100 };
+  save();
+  applyLocation();
+  render({ keepDetails: true });
+  if (!quiet) toast(`Sunrise & panchang set for ${l.name}`);
+}
+function locateMe({ quiet } = {}) {
+  if (!navigator.geolocation) { if (!quiet) toast('Location isn’t available here — pick your city instead'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude: lat, longitude: lon } = pos.coords;
+    const near = nearestCity(lat, lon);
+    const cur = currentLocation();
+    if (quiet && cur.source === 'gps' && distanceKm(cur, { lat, lon }) < 25) return; // hasn't moved
+    const name = !near ? 'Current location' : near.km < 30 ? near.name : `Near ${near.name}`;
+    closeModal();
+    setLocation({ name, region: near && near.region, lat, lon, source: 'gps' }, { quiet: false });
+  }, err => {
+    if (!quiet) toast(err.code === 1 ? 'Location permission was declined — pick your city instead' : 'Couldn’t get your location — pick your city instead');
+  }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 3600000 });
+}
+// If you chose "use my location" before, quietly follow you to a new city when the app opens
+function refreshLocationIfAllowed() {
+  if (currentLocation().source !== 'gps' || !navigator.permissions) return;
+  navigator.permissions.query({ name: 'geolocation' }).then(p => { if (p.state === 'granted') locateMe({ quiet: true }); }).catch(() => {});
+}
+
+function openLocationPicker() {
+  const cur = currentLocation();
+  openModal(`
+    <div class="modal-card loc-card">
+      <div class="modal-title-row"><h2>Your location</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <p class="muted small">Used for sunrise, sunset, Rahu Kaal and the tithi of each day. It stays on this device.</p>
+      <div class="loc-current">${icon('mapPin')}<div><b>${esc(cur.name)}</b><span>${esc([cur.region, cur.source === 'gps' ? 'from your device' : cur.source === 'default' ? 'default' : ''].filter(Boolean).join(' · '))}</span></div></div>
+      <button class="btn primary loc-gps" data-act="gps">${icon('mapPin')}Use my current location</button>
+      <label class="lbl">Or choose a city<input class="loc-search" type="search" placeholder="Search city…" autocomplete="off" autofocus></label>
+      <div class="loc-results" role="listbox"></div>
+    </div>`, m => {
+    const input = m.querySelector('.loc-search');
+    const box = m.querySelector('.loc-results');
+    const show = () => {
+      const q = input.value.trim().toLowerCase();
+      const list = (q ? CITIES.filter(c => `${c.name} ${c.region}`.toLowerCase().includes(q)) : CITIES.slice(0, 12)).slice(0, 40);
+      box.innerHTML = list.length
+        ? list.map((c, i) => `<button class="loc-item" data-i="${CITIES.indexOf(c)}" role="option">${esc(c.name)}<span>${esc(c.region)}</span></button>`).join('')
+        : '<p class="muted small pad">No match — try a nearby bigger city.</p>';
+    };
+    input.addEventListener('input', show);
+    show();
+    m.addEventListener('click', e => {
+      if (e.target.closest('[data-act="gps"]')) { locateMe(); return; }
+      const b = e.target.closest('.loc-item');
+      if (!b) return;
+      const c = CITIES[+b.dataset.i];
+      closeModal();
+      setLocation({ ...c, source: 'city' });
+    });
+  });
+}
+
+const MOON_EMOJI = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+function panchangStrip(day, { compact } = {}) {
+  if (!window.Panchang || state.settings.showPanchang === false) return '';
+  const i = Panchang.dayInfo(day);
+  const moon = MOON_EMOJI[Math.round(Panchang.elongation(i.sunrise.getTime()) / 45) % 8];
+  const loc = currentLocation();
+  return `<section class="panchang ${compact ? 'compact' : ''}">
+    <button class="pc-loc" data-action="pick-location" title="Change location">${icon('mapPin')}<span>${esc(loc.name.replace('Art of Living International Center', 'AoL Bengaluru'))}</span>${icon('chevronDown')}</button>
+    <div class="pc-items">
+      <span class="pc-item" title="Sunrise">${icon('sunrise')}<span><b>${clock(i.sunrise)}</b><small>Sunrise</small></span></span>
+      <span class="pc-item" title="Sunset">${icon('sunset')}<span><b>${clock(i.sunset)}</b><small>Sunset</small></span></span>
+      <span class="pc-item tithi" title="Tithi at sunrise">${moon}<span><b>${esc(i.tithi.label)}</b><small>until ${esc(clockOn(i.tithi.endsAt, day))}</small></span></span>
+      <span class="pc-item" title="Brahma Muhurta — the pre-dawn window traditionally best for meditation">🧘<span><b>${clock(i.brahma[0])}–${clock(i.brahma[1])}</b><small>Brahma Muhurta</small></span></span>
+      <span class="pc-item" title="Rahu Kaal — traditionally avoided for new beginnings">${icon('hourglass')}<span><b>${clock(i.rahu[0])}–${clock(i.rahu[1])}</b><small>Rahu Kaal</small></span></span>
+    </div>
+  </section>`;
+}
+
 // Which event calendars this view shows: festivals everywhere, plus the space calendars in scope.
 function eventScope() {
   const v = ui.view;
@@ -1302,7 +1417,7 @@ function eventsByDate(from, to, sets = eventScope().filter(layerOn)) {
   for (let y = +from.slice(0, 4); y <= +to.slice(0, 4); y++) {
     for (const e of eventsForYear(y)) if (!e.hidden && e.d >= from && e.d <= to && sets.includes(e.set)) (map[e.d] = map[e.d] || []).push(e);
   }
-  const rank = e => (e.k === 'holiday' ? 0 : e.k.startsWith('moon') ? 1 : e.set === 'festivals' ? 2 : 3);
+  const rank = e => (e.k === 'holiday' ? 0 : e.k.startsWith('moon') || e.k === 'vrat' ? 1 : e.set === 'festivals' ? 2 : 3);
   Object.values(map).forEach(a => a.sort((x, z) => rank(x) - rank(z) || (x.time || '').localeCompare(z.time || '')));
   return map;
 }
@@ -1407,6 +1522,7 @@ function renderCalendar(vm) {
     </div>
     <section class="group cal-day-list">
       ${groupHead({ key: 'cal', title: fmtDate(ui.calDay), hint: fmtShort(ui.calDay), tasks: dayTasks }, { ...vm, showList: true }, false)}
+      ${panchangStrip(ui.calDay, { compact: true })}
       ${dayEventsBlock(eventsByDate(ui.calDay, ui.calDay)[ui.calDay])}
       <div class="task-list">${dayTasks.map(t => taskRow(t, { ...vm, flat: false, showList: true })).join('')}</div>
       ${inlineAdd('cal:' + ui.calDay, { due: ui.calDay })}
@@ -1989,6 +2105,14 @@ function openSettings() {
         ${perm === 'default' ? '<button class="btn ghost sm" data-act="notify">Enable</button>' : ''}
       </div>
       <div class="set-row">
+        <div><b>Location</b><div class="muted small">For sunrise, sunset and panchang · ${esc(currentLocation().name)}</div></div>
+        <button class="btn ghost sm" data-act="location">${icon('mapPin')}Change</button>
+      </div>
+      <div class="set-row">
+        <div><b>Daily panchang on Today</b><div class="muted small">Sunrise, tithi, Brahma Muhurta and Rahu Kaal</div></div>
+        <div class="seg" data-set="showPanchang">${[['true', 'Show'], ['false', 'Hide']].map(([v, l]) => `<button class="${String(s.showPanchang !== false) === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="set-row">
         <div><b>Cloud sync</b><div class="muted small">${window.DoableSync && DoableSync.user ? `Signed in as ${esc(DoableSync.user.email)}` : 'Keep tasks identical on all your devices.'}</div></div>
         <button class="btn ghost sm" data-act="account">${icon('cloud')}${window.DoableSync && DoableSync.user ? 'Manage' : 'Sign in'}</button>
       </div>
@@ -2005,7 +2129,8 @@ function openSettings() {
       const seg = e.target.closest('[data-set] [data-v]');
       if (seg) {
         const key = seg.closest('[data-set]').dataset.set;
-        state.settings[key] = seg.dataset.v;
+        const v = seg.dataset.v;
+        state.settings[key] = v === 'true' ? true : v === 'false' ? false : v;
         save(); applyTheme(); render();
         $$('[data-v]', seg.parentElement).forEach(b => b.classList.toggle('on', b === seg));
         return;
@@ -2013,6 +2138,7 @@ function openSettings() {
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'export') exportData();
       if (act === 'account') openAccount();
+      if (act === 'location') openLocationPicker();
       if (act === 'notify') { await askNotifyPermission(true); openSettings(); }
       if (act === 'reset') {
         const ok = await confirmDialog({ title: 'Reset everything?', message: 'All lists and tasks on this device will be replaced with the starter set. Export a backup first if you want to keep them.', confirm: 'Reset' });
@@ -2285,6 +2411,7 @@ async function handleAction(a, el, id) {
       break;
     }
     case 'plan-event': planEvent(el.dataset.ev); break;
+    case 'pick-location': openLocationPicker(); break;
     case 'join': { const t = getTask(id); if (t && t.link) openLink(t.link); break; }
     case 'goto-event': {
       const e = findEvent(el.dataset.ev);
@@ -2922,6 +3049,7 @@ if (authHash) {
   if (err) setTimeout(() => toast(err.replace(/\+/g, ' ')), 500);
 }
 applyTheme();
+applyLocation();
 if (ensureSpaces()) save();
 bindEvents();
 bindDetails();
@@ -2930,6 +3058,7 @@ render();
 if (!authHash && !applyHash()) syncHash();
 addEventListener('hashchange', applyHash);
 checkReminders();
+refreshLocationIfAllowed();
 if (window.DoableSync) {
   DoableSync.init({
     records: syncRecords,

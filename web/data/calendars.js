@@ -48,16 +48,22 @@ window.DOABLE_EVENT_SETS = {
     ],
   },
 
-  // Purnima & Amavasya, computed from astronomy (web/moon.js). Shown with the Art of Living space.
+  // Purnima, Amavasya, Ekadashi, Pradosh & Masik Shivaratri, computed for your location (web/panchang.js).
+  // Shown with the Art of Living space.
   moon: {
-    name: 'Moon days',
+    name: 'Moon & vrat days',
     short: 'Moon days',
     emoji: '🌕',
     color: '#8b7bd8',
-    source: 'Computed full/new moon times; day = tithi at Bengaluru sunrise',
+    source: 'Computed from Moon/Sun positions; days follow the tithi at local sunrise',
     moonPhases: true,
-    full: { t: 'Purnima · Full moon', note: 'Full moon at {time} IST. A powerful day for meditation, satsang and Sudarshan Kriya.' },
-    new: { t: 'Amavasya · New moon', note: 'New moon at {time} IST. A quiet, inward day, good for silence and deep meditation.' },
+    full: { t: 'Purnima · Full moon', note: 'Full moon at {time}. A powerful day for meditation, satsang and Sudarshan Kriya.' },
+    new: { t: 'Amavasya · New moon', note: 'New moon at {time}. A quiet, inward day, good for silence and deep meditation.' },
+    special: {
+      ekadashi: { emoji: '🪷', t: '{paksha} Ekadashi', note: 'Fasting and meditation day. Ekadashi tithi until {until}.' },
+      pradosh: { emoji: '🌆', t: 'Pradosh Vrat', note: 'Trayodashi at dusk: Shiva puja and meditation after sunset ({sunset}).' },
+      shivaratri: { emoji: '🔱', t: 'Masik Shivaratri', note: 'Monthly night of Shiva: meditation and chanting around midnight.' },
+    },
     // Festivals that fall on the same day name the Purnima / Amavasya
     names: [
       { type: 'full', match: /^Buddha Purnima$/, t: 'Buddha Purnima · Vaishakha full moon' },

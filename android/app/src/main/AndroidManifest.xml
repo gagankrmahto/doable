@@ -34,4 +34,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- On-time task reminders (falls back to slightly inexact if the user hasn't allowed alarms) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- City-level location for local sunrise/sunset and panchang (asked only when you tap "Use my location") -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 </manifest>
