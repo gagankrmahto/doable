@@ -4,7 +4,7 @@
 create table if not exists public.doable_records (
   user_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
   id         text        not null,                 -- e.g. "task:abc123", "list:xyz", "settings", "stats"
-  kind       text        not null check (kind in ('task', 'list', 'settings', 'stats')),
+  kind       text        not null,
   data       jsonb,                                -- the record itself (null when deleted)
   deleted    boolean     not null default false,   -- tombstone so deletes sync too
   updated_at timestamptz not null default now(),
@@ -12,6 +12,11 @@ create table if not exists public.doable_records (
 );
 
 create index if not exists doable_records_user_updated on public.doable_records (user_id, updated_at);
+
+-- Allowed record types (re-created so re-running this file picks up new types)
+alter table public.doable_records drop constraint if exists doable_records_kind_check;
+alter table public.doable_records add constraint doable_records_kind_check
+  check (kind in ('task', 'list', 'settings', 'stats', 'practice', 'sadhana', 'person'));
 
 -- The server owns the clock: every insert/update gets a fresh timestamp, so devices with
 -- wrong clocks can't break ordering.

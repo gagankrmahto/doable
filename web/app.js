@@ -72,6 +72,7 @@ const ICONS = {
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
   video: '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  lotus: '<path d="M12 20c-2.2-2.2-3.2-5-3.2-8 0-2.6 1.2-5.2 3.2-7.2 2 2 3.2 4.6 3.2 7.2 0 3-1 5.8-3.2 8z"/><path d="M12 20c-4.4 0-8.4-2.4-9-6.6 2.6-.4 5 .4 6.8 2.2M12 20c4.4 0 8.4-2.4 9-6.6-2.6-.4-5 .4-6.8 2.2"/>',
   mapPin: '<path d="M20 10c0 4.99-5.54 10.19-7.4 11.79a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
   sunrise: '<path d="M12 2v6M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M8 6l4-4 4 4M16 18a4 4 0 0 0-8 0"/>',
   sunset: '<path d="M12 10V2M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M16 6l-4 4-4-4M16 18a4 4 0 0 0-8 0"/>',
@@ -102,6 +103,7 @@ const SMART = [
   { id: 'today', name: 'Today', icon: 'sun' },
   { id: 'upcoming', name: 'Upcoming', icon: 'calendar' },
   { id: 'calendar', name: 'Calendar', icon: 'calendarDays' },
+  { id: 'sadhana', name: 'Sadhana', icon: 'lotus' },
   { id: 'starred', name: 'Starred', icon: 'star' },
   { id: 'all', name: 'All tasks', icon: 'layers' },
   { id: 'completed', name: 'Completed', icon: 'checkCircle' },
@@ -223,6 +225,28 @@ const listFrom = l => {
 const spaceOf = list => list && SPACES.find(s => s.id === list.space);
 const spaceList = spaceId => state.lists.find(l => l.space === spaceId);
 
+/* ---------- Sadhana: daily practices ---------- */
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+const DEFAULT_PRACTICES = [
+  { id: 'pr-kriya', name: 'Sudarshan Kriya', emoji: '🌬️', color: '#f76b15', days: ALL_DAYS, order: 0 },
+  { id: 'pr-meditation', name: 'Meditation', emoji: '🧘', color: '#8b7bd8', days: ALL_DAYS, order: 1 },
+  { id: 'pr-yoga', name: 'Yoga · Padmasadhana', emoji: '🤸', color: '#30a46c', days: ALL_DAYS, order: 2 },
+  { id: 'pr-satsang', name: 'Satsang', emoji: '🎶', color: '#e2a336', days: [0], order: 3 },
+  { id: 'pr-seva', name: 'Seva', emoji: '🙏', color: '#12a594', days: [6], order: 4 },
+];
+const practiceFrom = p => (p && p.id ? {
+  id: String(p.id), name: String(p.name || 'Practice'), emoji: p.emoji || '✨', color: p.color || '#8b7bd8',
+  days: Array.isArray(p.days) && p.days.length ? p.days.map(Number).filter(n => n >= 0 && n <= 6) : [...ALL_DAYS],
+  remind: /^\d\d:\d\d$/.test(p.remind || '') ? p.remind : null, order: +p.order || 0, archived: !!p.archived,
+} : null);
+// Default practices once per account (deterministic ids, so two devices don't create duplicates)
+function ensureSadhana() {
+  if (state.settings.sadhanaInit) return false;
+  if (!state.practices.length) state.practices = DEFAULT_PRACTICES.map(practiceFrom);
+  state.settings.sadhanaInit = true;
+  return true;
+}
+
 // Make sure each space has a list (once per account; deterministic ids so devices don't create duplicates).
 function ensureSpaces() {
   if (state.settings.spacesInit) return false;
@@ -266,7 +290,11 @@ function seedState() {
   const settings = defaultSettings();
   settings.defaultListId = inbox.id;
   settings.spacesInit = true;
-  return { version: 2, lists: [inbox, personal, work, aol, ngo], tasks, settings, stats: { completions: { [todayStr()]: 1 } }, meta: { pristine: true } };
+  settings.sadhanaInit = true;
+  return {
+    version: 2, lists: [inbox, personal, work, aol, ngo], tasks, settings, stats: { completions: { [todayStr()]: 1 } }, meta: { pristine: true },
+    practices: DEFAULT_PRACTICES.map(practiceFrom), sadhana: {}, people: [],
+  };
 }
 
 // fixOrphans: reassign tasks whose list is missing. Off while syncing, since a list can arrive after its tasks.
@@ -286,6 +314,9 @@ function normalize(data, { fixOrphans = false } = {}) {
     settings: { ...defaultSettings(), ...(data.settings || {}) },
     stats: { completions: { ...((data.stats && data.stats.completions) || {}) } },
     meta: { pristine: !!(data.meta && data.meta.pristine) },
+    practices: Array.isArray(data.practices) ? data.practices.map(practiceFrom).filter(Boolean) : [],
+    sadhana: data.sadhana && typeof data.sadhana === 'object' ? data.sadhana : {},
+    people: Array.isArray(data.people) ? data.people.filter(p => p && p.id) : [],
   };
   if (ver < 2 && s.settings.accent === '#4f6bed') s.settings.accent = '#7b68ee';
   if (!s.lists.length) s.lists.push({ id: uid(), name: 'My Tasks', color: LIST_COLORS[0] });
@@ -824,6 +855,14 @@ function viewModel() {
         subtitle: 'Plan your week ahead', hideEmpty: true,
       };
     }
+    case 'sadhana': {
+      const due = activePractices().filter(p => scheduledOn(p, T));
+      const done = due.filter(p => isDone(T, p.id)).length;
+      return {
+        title: 'Sadhana', icon: 'lotus', modes: ['list'], groups: [], completed: [], sortable: false, sadhana: true,
+        subtitle: due.length ? `${done} of ${due.length} practices done today` : 'Your daily practice',
+      };
+    }
     case 'calendar': {
       const sp = state.settings.calSpace && state.settings.calSpace !== 'all' ? spaceList(state.settings.calSpace) : null;
       const items = sp ? top.filter(t => t.listId === sp.id) : top;
@@ -893,6 +932,7 @@ function renderSidebar() {
     today: active.filter(t => (t.due && t.due <= T) || t.myDay === T).length,
     upcoming: active.filter(t => t.due && t.due > T && t.due <= weekEnd).length,
     starred: active.filter(t => t.starred).length,
+    sadhana: activePractices().filter(p => scheduledOn(p, T) && !isDone(T, p.id)).length,
     all: active.length,
   };
   const cur = ui.search ? '' : viewKey();
@@ -969,7 +1009,8 @@ function renderMain() {
   renderQaHint();
   const content = $('#content');
   content.dataset.mode = ui.mode;
-  content.innerHTML = ui.mode === 'calendar' ? renderCalendar(vm) : ui.mode === 'board' ? renderBoard(vm) : renderList(vm);
+  content.innerHTML = vm.sadhana ? renderSadhana() : ui.mode === 'calendar' ? renderCalendar(vm) : ui.mode === 'board' ? renderBoard(vm) : renderList(vm);
+  $('.content-wrap').classList.toggle('no-qa', !!vm.sadhana);
   ui.visibleIds = $$('#content [data-task]').map(el => el.dataset.id);
   if (ui.inlineKey) {
     const inp = $('#content .inline-input');
@@ -1100,7 +1141,7 @@ function renderList(vm) {
   const hasActive = vm.groups.some(g => g.tasks.length);
   let html = '';
   if (vm.upNext && vm.upNext.length) html += upNextBanner(vm.upNext);
-  if (vm.panchang) html += panchangStrip(vm.panchang);
+  if (vm.panchang) html += panchangStrip(vm.panchang) + sadhanaStrip();
   if (vm.banner && vm.banner.length) html += eventStrip('Today', vm.banner, false);
   if (vm.comingUp) html += eventStrip(`Coming up · ${setOf(vm.comingUp[0]).name}`, vm.comingUp, true);
   if (!hasActive && !vm.hideEmpty && vm.empty) {
@@ -1379,6 +1420,210 @@ function openLocationPicker() {
       const c = CITIES[+b.dataset.i];
       closeModal();
       setLocation({ ...c, source: 'city' });
+    });
+  });
+}
+
+/* ---------- Sadhana tracker UI ---------- */
+const activePractices = () => state.practices.filter(p => !p.archived).sort((a, b) => a.order - b.order);
+const scheduledOn = (p, day) => p.days.includes(parseYmd(day).getDay());
+const isDone = (day, pid) => !!(state.sadhana[day] && state.sadhana[day][pid]);
+const dayBefore = d => ymd(addDays(parseYmd(d), -1));
+const firstLogDay = () => Object.keys(state.sadhana).sort()[0] || todayStr();
+
+// Current & best streaks. Unscheduled days never break a streak; today doesn't count against you until it's over.
+function streakOf(p) {
+  const T = todayStr();
+  const first = firstLogDay();
+  let current = 0;
+  for (let d = isDone(T, p.id) ? T : dayBefore(T); d >= first; d = dayBefore(d)) {
+    if (isDone(d, p.id)) current++;
+    else if (scheduledOn(p, d)) break;
+  }
+  let best = 0, run = 0;
+  for (let d = first; d <= T; d = ymd(addDays(parseYmd(d), 1))) {
+    if (isDone(d, p.id)) best = Math.max(best, ++run);
+    else if (scheduledOn(p, d) && d !== T) run = 0;
+  }
+  return { current, best: Math.max(best, current) };
+}
+function monthRate(p) {
+  const T = todayStr();
+  let due = 0, done = 0;
+  for (let d = T.slice(0, 8) + '01'; d <= T; d = ymd(addDays(parseYmd(d), 1))) {
+    const did = isDone(d, p.id);
+    if (scheduledOn(p, d) && (d !== T || did)) due++;
+    if (did) done++;
+  }
+  return due ? Math.min(100, Math.round((done / due) * 100)) : null;
+}
+// Sacred-day nudge for practice, from the moon/festival calendars
+function sadhanaHint(day) {
+  const evs = eventsByDate(day, day, ['moon', 'festivals', 'aol'])[day] || [];
+  const moon = evs.find(e => e.k === 'moon-full' || e.k === 'moon-new');
+  const ek = evs.find(e => e.k === 'vrat' && /Ekadashi/.test(e.t));
+  const sacred = evs.find(e => e.sacred || e.set === 'aol');
+  if (moon && moon.k === 'moon-full') return `🌕 ${moon.t.split(' · ')[0]} today — a beautiful day for a longer meditation.`;
+  if (moon) return '🌑 Amavasya today — go within: silence and deep meditation.';
+  if (ek) return '🪷 Ekadashi today — eat light and give more time to meditation.';
+  if (sacred) return `✨ ${sacred.t} — a sacred day for sadhana and satsang.`;
+  return '';
+}
+
+function sadhanaStrip() {
+  if (state.settings.showSadhana === false) return '';
+  const T = todayStr();
+  const list = activePractices().filter(p => scheduledOn(p, T));
+  if (!list.length) return '';
+  const done = list.filter(p => isDone(T, p.id)).length;
+  const hint = sadhanaHint(T);
+  return `<section class="sd-strip">
+    <header><span>${icon('lotus')}Sadhana</span><b>${done}/${list.length}</b>${hint ? `<em>${esc(hint)}</em>` : ''}<button class="link-btn" data-nav="smart:sadhana">Open ${icon('chevronRight')}</button></header>
+    <div class="sd-chips">${list.map(p => {
+      const on = isDone(T, p.id);
+      const s = on ? streakOf(p).current : 0;
+      return `<button class="sd-chip ${on ? 'done' : ''}" data-action="sd-toggle" data-p="${p.id}" style="--pc:${p.color}" aria-pressed="${on}">
+        <span class="sd-emo">${p.emoji}</span><span>${esc(p.name)}</span>${on ? `<span class="sd-tick">${icon('check')}</span>${s > 1 ? `<small>🔥${s}</small>` : ''}` : ''}
+      </button>`;
+    }).join('')}</div>
+  </section>`;
+}
+
+function heatmap(weeks = 26) {
+  const T = todayStr();
+  const ws = state.settings.weekStart;
+  const today = parseYmd(T);
+  const end = addDays(today, (ws + 6 - today.getDay() + 7) % 7); // end of this week
+  const start = addDays(end, -(weeks * 7 - 1));
+  const ps = activePractices();
+  let cells = '', months = '';
+  let lastMonth = -1;
+  for (let w = 0; w < weeks; w++) {
+    const colStart = addDays(start, w * 7);
+    if (colStart.getMonth() !== lastMonth) { lastMonth = colStart.getMonth(); months += `<span style="grid-column:${w + 1}">${colStart.toLocaleDateString(LOCALE, { month: 'short' })}</span>`; }
+    for (let r = 0; r < 7; r++) {
+      const dt = addDays(colStart, r);
+      const d = ymd(dt);
+      const future = d > T;
+      const due = ps.filter(p => scheduledOn(p, d)).length;
+      const did = ps.filter(p => isDone(d, p.id)).length;
+      const level = future ? -1 : did === 0 ? 0 : !due ? 4 : Math.max(1, Math.min(4, Math.ceil((did / due) * 4)));
+      cells += `<i class="hm l${level}" style="grid-column:${w + 1};grid-row:${r + 1}" title="${esc(fmtDate(d))}: ${did}${due ? '/' + due : ''} practices"></i>`;
+    }
+  }
+  return `<div class="hm-wrap"><div class="hm-months" style="grid-template-columns:repeat(${weeks},1fr)">${months}</div><div class="hm-grid" style="grid-template-columns:repeat(${weeks},1fr)">${cells}</div>
+    <div class="hm-legend">Less <i class="hm l0"></i><i class="hm l1"></i><i class="hm l2"></i><i class="hm l3"></i><i class="hm l4"></i> More</div></div>`;
+}
+
+function renderSadhana() {
+  const T = todayStr();
+  const day = ui.sadhanaDay && ui.sadhanaDay <= T ? ui.sadhanaDay : T;
+  const ps = activePractices();
+  const hint = sadhanaHint(day);
+  const last7 = [];
+  for (let i = 6; i >= 0; i--) last7.push(ymd(addDays(parseYmd(T), -i)));
+  return `
+    <div class="sd-head">
+      <div class="sd-nav">
+        <button class="icon-btn sm" data-action="sd-day" data-delta="-1" aria-label="Previous day">${icon('chevronLeft')}</button>
+        <b>${esc(fmtDate(day))}</b><span class="muted small">${esc(fmtShort(day))}</span>
+        <button class="icon-btn sm" data-action="sd-day" data-delta="1" aria-label="Next day" ${day >= T ? 'disabled' : ''}>${icon('chevronRight')}</button>
+      </div>
+      <button class="btn ghost sm" data-action="sd-manage">${icon('edit')}Edit practices</button>
+    </div>
+    ${hint ? `<p class="sd-hint">${esc(hint)}</p>` : ''}
+    ${panchangStrip(day, { compact: true })}
+    <div class="sd-grid">${ps.length ? ps.map(p => {
+      const on = isDone(day, p.id);
+      const sched = scheduledOn(p, day);
+      const st = streakOf(p);
+      return `<button class="sd-card ${on ? 'done' : ''} ${sched ? '' : 'off'}" data-action="sd-toggle" data-p="${p.id}" data-day="${day}" style="--pc:${p.color}" aria-pressed="${on}">
+        <span class="sd-emoji">${p.emoji}</span>
+        <span class="sd-info"><b>${esc(p.name)}</b><small>${sched ? (st.current ? `🔥 ${st.current}-day streak` : 'Start your streak today') : 'Not scheduled today'}${p.remind ? ` · ⏰ ${esc(fmtTime(p.remind))}` : ''}</small></span>
+        <span class="sd-check">${icon('check')}</span>
+      </button>`;
+    }).join('') : '<p class="muted">No practices yet — add one with “Edit practices”.</p>'}</div>
+    ${ps.length ? `
+    <section class="sd-section">
+      <h3>Last 7 days</h3>
+      <div class="sd-table">
+        <div class="sd-row sd-th"><span></span>${last7.map(d => `<span>${esc(parseYmd(d).toLocaleDateString(LOCALE, { weekday: 'narrow' }))}</span>`).join('')}<span>Streak</span><span>Best</span><span>Month</span></div>
+        ${ps.map(p => { const st = streakOf(p); const mr = monthRate(p); return `<div class="sd-row" style="--pc:${p.color}">
+          <span class="sd-pname">${p.emoji} ${esc(p.name)}</span>
+          ${last7.map(d => `<span><i class="sd-dot ${isDone(d, p.id) ? 'on' : scheduledOn(p, d) ? '' : 'na'}" title="${esc(fmtDate(d))}"></i></span>`).join('')}
+          <span><b>${st.current}</b></span><span>${st.best}</span><span>${mr == null ? '—' : mr + '%'}</span>
+        </div>`; }).join('')}
+      </div>
+    </section>
+    <section class="sd-section"><h3>Your practice · last 6 months</h3>${heatmap(26)}</section>` : ''}`;
+}
+
+function togglePractice(pid, day = todayStr()) {
+  const p = state.practices.find(x => x.id === pid);
+  if (!p || day > todayStr()) return;
+  const was = isDone(day, pid);
+  commit(() => {
+    if (was) { delete state.sadhana[day][pid]; if (!Object.keys(state.sadhana[day]).length) delete state.sadhana[day]; }
+    else (state.sadhana[day] = state.sadhana[day] || {})[pid] = { done: true, at: Date.now() };
+  });
+  if (was) return;
+  const s = streakOf(p).current;
+  const T = todayStr();
+  const all = activePractices().filter(x => scheduledOn(x, T));
+  if (day === T && all.length > 1 && all.every(x => isDone(T, x.id))) { celebrate(); toast('🙏 Full sadhana done today — beautiful!'); }
+  else toast(s > 1 ? `${p.emoji} ${p.name} · ${s}-day streak 🔥` : `${p.emoji} ${p.name} done`, { undo: true });
+}
+
+function openPracticeEditor() {
+  const DOW = [0, 1, 2, 3, 4, 5, 6].map(i => new Date(2024, 0, 7 + i).toLocaleDateString(LOCALE, { weekday: 'narrow' }));
+  const draw = m => {
+    const ps = [...state.practices].sort((a, b) => a.order - b.order);
+    m.querySelector('.pe-list').innerHTML = ps.map(p => `
+      <div class="pe-row ${p.archived ? 'archived' : ''}" data-p="${p.id}" style="--pc:${p.color}">
+        <input class="pe-emoji" value="${esc(p.emoji)}" maxlength="4" data-f="emoji" aria-label="Emoji">
+        <input class="pe-name" value="${esc(p.name)}" data-f="name" aria-label="Practice name">
+        <div class="pe-days" role="group" aria-label="Days">${DOW.map((l, i) => `<button class="${p.days.includes(i) ? 'on' : ''}" data-day="${i}" aria-pressed="${p.days.includes(i)}">${l}</button>`).join('')}</div>
+        <label class="pe-time" title="Daily reminder">${icon('bell')}<input type="time" value="${p.remind || ''}" data-f="remind" aria-label="Reminder time"></label>
+        <button class="icon-btn sm" data-pe="${p.archived ? 'restore' : 'archive'}" title="${p.archived ? 'Show again' : 'Hide (keeps history)'}">${icon(p.archived ? 'repeat' : 'x')}</button>
+      </div>`).join('');
+  };
+  openModal(`
+    <div class="modal-card wide">
+      <div class="modal-title-row"><h2>Your practices</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <p class="muted small">Choose the days for each practice and an optional reminder time. Hidden practices keep their history.</p>
+      <div class="pe-list"></div>
+      <div class="modal-actions"><button class="btn ghost sm" data-pe="add">${icon('plus')}Add practice</button><span class="spacer"></span><button class="btn primary" data-m="cancel">Done</button></div>
+    </div>`, m => {
+    draw(m);
+    const get = el => state.practices.find(p => p.id === el.closest('[data-p]').dataset.p);
+    m.addEventListener('click', e => {
+      const dayBtn = e.target.closest('.pe-days [data-day]');
+      const act = e.target.closest('[data-pe]')?.dataset.pe;
+      if (dayBtn) {
+        const p = get(dayBtn);
+        const i = +dayBtn.dataset.day;
+        if (p.days.includes(i) && p.days.length === 1) { toast('Keep at least one day'); return; }
+        commit(() => { p.days = p.days.includes(i) ? p.days.filter(x => x !== i) : [...p.days, i].sort(); });
+        draw(m);
+      } else if (act === 'archive' || act === 'restore') {
+        const p = get(e.target);
+        commit(() => { p.archived = act === 'archive'; });
+        draw(m);
+      } else if (act === 'add') {
+        const order = Math.max(-1, ...state.practices.map(p => p.order)) + 1;
+        commit(() => { state.practices.push(practiceFrom({ id: uid(), name: 'New practice', emoji: '✨', color: LIST_COLORS[order % LIST_COLORS.length], days: ALL_DAYS, order })); });
+        draw(m);
+        const rows = m.querySelectorAll('.pe-name');
+        rows[rows.length - 1]?.select();
+      }
+    });
+    m.addEventListener('change', e => {
+      const f = e.target.dataset.f;
+      if (!f) return;
+      const p = get(e.target);
+      const v = e.target.value.trim();
+      commit(() => { if (f === 'name') p.name = v || p.name; if (f === 'emoji') p.emoji = v || '✨'; if (f === 'remind') p.remind = v || null; });
+      if (f === 'remind' && v) askNotifyPermission();
     });
   });
 }
@@ -2316,6 +2561,22 @@ function checkReminders() {
     }
   }
   if (changed) save();
+  // Practice reminders (in-app; the Android app also gets scheduled notifications)
+  const T = todayStr();
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  ui.practiceNotified = ui.practiceNotified || new Set();
+  for (const p of activePractices()) {
+    if (!p.remind || !scheduledOn(p, T) || isDone(T, p.id)) continue;
+    const [h, m] = p.remind.split(':').map(Number);
+    const key = `${T}:${p.id}`;
+    if (nowMin >= h * 60 + m && nowMin < h * 60 + m + 60 && !ui.practiceNotified.has(key)) {
+      ui.practiceNotified.add(key);
+      toast(`${p.emoji} Time for ${p.name}`, { duration: 12000, action: { label: 'Mark done', fn: () => togglePractice(p.id) } });
+      if (!isNative && 'Notification' in window && Notification.permission === 'granted') {
+        navigator.serviceWorker?.getRegistration().then(reg => (reg ? reg.showNotification(`${p.emoji} ${p.name}`, { body: 'Time for your practice', tag: key }) : new Notification(`${p.emoji} ${p.name}`, { body: 'Time for your practice' }))).catch(() => {});
+      }
+    }
+  }
   if (ui.lastDay !== todayStr()) { ui.lastDay = todayStr(); render(); }
 }
 function notify(t) {
@@ -2412,6 +2673,15 @@ async function handleAction(a, el, id) {
     }
     case 'plan-event': planEvent(el.dataset.ev); break;
     case 'pick-location': openLocationPicker(); break;
+    case 'sd-toggle': togglePractice(el.dataset.p, el.dataset.day || todayStr()); break;
+    case 'sd-day': {
+      const cur = ui.sadhanaDay || todayStr();
+      const next = ymd(addDays(parseYmd(cur), +el.dataset.delta));
+      ui.sadhanaDay = next > todayStr() ? todayStr() : next;
+      renderMain();
+      break;
+    }
+    case 'sd-manage': openPracticeEditor(); break;
     case 'join': { const t = getTask(id); if (t && t.link) openLink(t.link); break; }
     case 'goto-event': {
       const e = findEvent(el.dataset.ev);
@@ -2759,14 +3029,27 @@ function scheduleNativeReminders() {
         const fire = at.getTime() - t.remind * 60000;
         if (fire > now + 5000 && fire < now + 60 * 864e5) upcoming.push({ t, fire });
       }
-      upcoming.sort((a, b) => a.fire - b.fire);
-      const list = upcoming.slice(0, 60).map(({ t, fire }) => ({
+      const items = upcoming.map(({ t, fire }) => ({
         id: notifId(t.id),
         title: t.title || 'Task reminder',
         body: [t.time ? fmtTime(t.time) : fmtDate(t.due), getList(t.listId) && getList(t.listId).name, t.link && `Tap to join on ${(callProvider(t.link) || {}).name || 'the call'}`].filter(Boolean).join(' · '),
-        schedule: { at: new Date(fire), allowWhileIdle: true },
+        fire,
         extra: { taskId: t.id },
       }));
+      // Practice reminders for the next 7 days (skipping days already ticked)
+      for (const p of activePractices()) {
+        if (!p.remind) continue;
+        const [h, m] = p.remind.split(':').map(Number);
+        for (let i = 0; i < 7; i++) {
+          const day = ymd(addDays(new Date(), i));
+          if (!scheduledOn(p, day) || isDone(day, p.id)) continue;
+          const at = parseYmd(day);
+          at.setHours(h, m, 0, 0);
+          if (at.getTime() > now + 5000) items.push({ id: notifId(`pr:${p.id}:${day}`), title: `${p.emoji} ${p.name}`, body: 'Time for your practice · tap to open Sadhana', fire: at.getTime(), extra: { practiceId: p.id } });
+        }
+      }
+      items.sort((a, b) => a.fire - b.fire);
+      const list = items.slice(0, 60).map(({ fire, ...n }) => ({ ...n, schedule: { at: new Date(fire), allowWhileIdle: true } }));
       const pending = await N.getPending();
       if (pending.notifications.length) await N.cancel({ notifications: pending.notifications.map(n => ({ id: n.id })) });
       if (!list.length) return;
@@ -2791,7 +3074,9 @@ function bindNative() {
   });
   native.App.addListener('resume', () => { checkReminders(); if (window.DoableSync) DoableSync.syncNow(); });
   native.Notifications.addListener('localNotificationActionPerformed', ev => {
-    const id = ev && ev.notification && ev.notification.extra && ev.notification.extra.taskId;
+    const extra = (ev && ev.notification && ev.notification.extra) || {};
+    if (extra.practiceId) { navigate('smart:sadhana'); return; }
+    const id = extra.taskId;
     const t = id && getTask(id);
     if (!t) return;
     openDetails(id);
@@ -2801,7 +3086,7 @@ function bindNative() {
 }
 
 /* ---------- Cloud sync ---------- */
-const SYNCED_SETTINGS = ['accent', 'weekStart', 'newOnTop', 'sort', 'group', 'defaultListId', 'calLayers', 'spacesInit'];
+const SYNCED_SETTINGS = ['accent', 'weekStart', 'newOnTop', 'sort', 'group', 'defaultListId', 'calLayers', 'spacesInit', 'sadhanaInit'];
 
 // Local state as sync records: one per task and list, plus shared settings and stats.
 function syncRecords() {
@@ -2812,11 +3097,15 @@ function syncRecords() {
   SYNCED_SETTINGS.forEach(k => { s[k] = state.settings[k] ?? null; });
   m.set('settings', { kind: 'settings', data: s });
   m.set('stats', { kind: 'stats', data: { completions: state.stats.completions } });
+  state.practices.forEach(p => m.set('practice:' + p.id, { kind: 'practice', data: p }));
+  // One record per check-in, so ticking different practices on two devices never conflicts
+  Object.entries(state.sadhana).forEach(([day, logs]) => Object.entries(logs).forEach(([pid, log]) => m.set(`sadhana:${day}:${pid}`, { kind: 'sadhana', data: log })));
+  state.people.forEach(p => m.set('person:' + p.id, { kind: 'person', data: p }));
   return m;
 }
 
 function applyRemote(rows, replace = false) {
-  if (replace) { state.tasks = []; state.lists = []; }
+  if (replace) { state.tasks = []; state.lists = []; state.practices = []; state.sadhana = {}; state.people = []; }
   const pos = new Map(state.lists.map((l, i) => [l.id, i]));
   let changed = replace;
   for (const r of rows) {
@@ -2844,6 +3133,23 @@ function applyRemote(rows, replace = false) {
     } else if (r.kind === 'stats' && !r.deleted) {
       const c = state.stats.completions;
       Object.entries(d.completions || {}).forEach(([k, v]) => { c[k] = Math.max(c[k] || 0, Number(v) || 0); });
+      changed = true;
+    } else if (r.kind === 'practice') {
+      const id = r.id.slice(9);
+      const i = state.practices.findIndex(p => p.id === id);
+      if (r.deleted) { if (i >= 0) state.practices.splice(i, 1); }
+      else { const p = practiceFrom({ ...d, id }); if (i >= 0) state.practices[i] = p; else state.practices.push(p); }
+      changed = true;
+    } else if (r.kind === 'sadhana') {
+      const [, day, pid] = r.id.split(':');
+      if (r.deleted) { if (state.sadhana[day]) { delete state.sadhana[day][pid]; if (!Object.keys(state.sadhana[day]).length) delete state.sadhana[day]; } }
+      else (state.sadhana[day] = state.sadhana[day] || {})[pid] = { done: true, ...d };
+      changed = true;
+    } else if (r.kind === 'person') {
+      const id = r.id.slice(7);
+      const i = state.people.findIndex(p => p.id === id);
+      if (r.deleted) { if (i >= 0) state.people.splice(i, 1); }
+      else { const p = { ...d, id }; if (i >= 0) state.people[i] = p; else state.people.push(p); }
       changed = true;
     }
   }
@@ -3050,7 +3356,7 @@ if (authHash) {
 }
 applyTheme();
 applyLocation();
-if (ensureSpaces()) save();
+if (ensureSpaces() | ensureSadhana()) save();
 bindEvents();
 bindDetails();
 bindNative();
