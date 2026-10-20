@@ -48,6 +48,15 @@ window.DOABLE_EVENT_SETS = {
     ],
   },
 
+  // Birthdays & anniversaries of your people (managed in the app; shown with the Personal space)
+  birthdays: {
+    name: 'Birthdays & anniversaries',
+    short: 'Birthdays',
+    emoji: '🎂',
+    color: '#d6409f',
+    fromPeople: true,
+  },
+
   // Purnima, Amavasya, Ekadashi, Pradosh & Masik Shivaratri, computed for your location (web/panchang.js).
   // Shown with the Art of Living space.
   moon: {

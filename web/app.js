@@ -212,7 +212,7 @@ function defaultSettings() {
 
 // The four life areas. Each is backed by a list; some also show a built-in event calendar.
 const SPACES = [
-  { id: 'personal', name: 'Personal', color: '#30a46c', aliases: ['personal'] },
+  { id: 'personal', name: 'Personal', color: '#30a46c', events: ['birthdays'], aliases: ['personal'] },
   { id: 'work', name: 'Work', color: '#0090ff', aliases: ['work'] },
   { id: 'aol', name: 'Art of Living', color: '#f76b15', events: ['aol', 'moon'], aliases: ['art of living', 'aol'] },
   { id: 'ngo', name: 'NexJyoti NGO', color: '#12a594', events: ['ngo'], aliases: ['nexjyoti ngo', 'nexjyoti', 'ngo'] },
@@ -829,7 +829,7 @@ function viewModel() {
       const total = active.length + completed.length;
       return {
         title: 'Today', icon: 'sun', showList: true, groups, completed, modes: ['list', 'board', 'calendar'], boardTasks: [...active, ...completed],
-        calTasks: top.filter(t => t.due), banner: eventsByDate(T, T)[T], upNext: upNextMeetings(), panchang: T,
+        calTasks: top.filter(t => t.due), banner: (eventsByDate(T, T)[T] || []).filter(e => !e.personId), upNext: upNextMeetings(), panchang: T,
         subtitle: new Date().toLocaleDateString(LOCALE, { weekday: 'long', month: 'long', day: 'numeric' }),
         progress: total ? { done: completed.length, total } : null,
         empty: completed.length
@@ -912,6 +912,7 @@ function viewModel() {
 /* ---------- Rendering ---------- */
 function render(opts = {}) {
   if (ui.view.type === 'list' && !getList(ui.view.id)) ui.view = { type: 'smart', id: 'today' };
+  eventYears.clear(); // birthdays etc. may have changed (undo, sync, other tabs); rebuilding is cheap
   renderSidebar();
   renderMain();
   if (!opts.keepDetails) renderDetails();
@@ -1141,7 +1142,10 @@ function renderList(vm) {
   const hasActive = vm.groups.some(g => g.tasks.length);
   let html = '';
   if (vm.upNext && vm.upNext.length) html += upNextBanner(vm.upNext);
-  if (vm.panchang) html += panchangStrip(vm.panchang) + sadhanaStrip();
+  if (vm.panchang) html += birthdayStrip(vm.panchang) + panchangStrip(vm.panchang) + sadhanaStrip();
+  if (vm.list && vm.list.space === 'personal') {
+    html += `<div class="pp-bar"><span>🎂 ${state.people.length ? `${peopleCount(state.people.length)} with birthdays & anniversaries` : 'Never miss a birthday — add them or import from Google Contacts'}</span><button class="btn ghost sm" data-action="people">${state.people.length ? 'Manage' : 'Add birthdays'}</button></div>`;
+  }
   if (vm.banner && vm.banner.length) html += eventStrip('Today', vm.banner, false);
   if (vm.comingUp) html += eventStrip(`Coming up · ${setOf(vm.comingUp[0]).name}`, vm.comingUp, true);
   if (!hasActive && !vm.hideEmpty && vm.empty) {
@@ -1290,6 +1294,27 @@ function eventsForYear(y) {
   fest.forEach(f => out.push({ set: 'festivals', d: f.d, t: f.t, k: f.k, tentative: !!f.tentative, sacred: !!(sacredRe && sacredRe.test(f.t)) }));
   for (const [setId, set] of Object.entries(EVENT_SETS)) {
     if (setId === 'festivals') continue;
+    if (set.fromPeople) {
+      for (const p of state.people) {
+        for (const kind of ['birthday', 'anniversary']) {
+          const date = p[kind];
+          if (!date) continue;
+          const [yy, mm, dd] = date.replace(/^--/, '0000-').split('-').map(Number);
+          // Feb 29 falls on Feb 28 in other years
+          const day = mm === 2 && dd === 29 && !(y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 28 : dd;
+          const years = yy ? y - yy : null;
+          if (years !== null && years < 0) continue;
+          const first = p.name.split(/\s+/)[0];
+          out.push({
+            set: setId, d: `${y}-${String(mm).padStart(2, '0')}-${String(day).padStart(2, '0')}`, k: kind, personId: p.id,
+            emoji: kind === 'birthday' ? '🎂' : '💐',
+            t: kind === 'birthday' ? `${p.name}'s birthday${years ? ` (turns ${years})` : ''}` : `${p.name} · anniversary${years ? ` (${years} yrs)` : ''}`,
+            note: p.phone ? `Wish ${first} on WhatsApp.` : `Tap Wish to send ${first} a message.`,
+          });
+        }
+      }
+      continue;
+    }
     if (set.moonPhases && window.Panchang) {
       const nearFest = (re, d, offset = 0) => fest.find(f => re.test(f.t) && f.d === ymd(addDays(parseYmd(d), offset)));
       const aolPurnimaDays = new Set(((EVENT_SETS.aol || {}).dated || []).filter(e => /Purnima/.test(e.t)).map(e => e.d));
@@ -1468,6 +1493,184 @@ function sadhanaHint(day) {
   if (ek) return '🪷 Ekadashi today — eat light and give more time to meditation.';
   if (sacred) return `✨ ${sacred.t} — a sacred day for sadhana and satsang.`;
   return '';
+}
+
+/* ---------- Birthdays & anniversaries ---------- */
+// Dates are stored as YYYY-MM-DD, or --MM-DD when the year isn't known.
+function normBday(raw) {
+  const s = String(raw || '').trim();
+  let m = s.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+  if (m) return +m[1] <= 1604 ? `--${m[2]}-${m[3]}` : `${m[1]}-${m[2]}-${m[3]}`; // 1604 = Apple's "no year"
+  m = s.match(/^--(\d{2})-?(\d{2})/);
+  if (m) return `--${m[1]}-${m[2]}`;
+  return null;
+}
+const validBday = d => { const m = d && d.match(/(\d{2})-(\d{2})$/); return !!m && +m[1] >= 1 && +m[1] <= 12 && +m[2] >= 1 && +m[2] <= 31; };
+const bdayLabel = d => {
+  const [yy, mm, dd] = d.replace(/^--/, '0000-').split('-').map(Number);
+  return new Date(2000, mm - 1, dd).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' }) + (yy ? ` ${yy}` : '');
+};
+function nextOccurrence(d) {
+  const [, mm, dd] = d.replace(/^--/, '0000-').split('-').map(Number);
+  const now = startOfDay(new Date());
+  let next = new Date(now.getFullYear(), mm - 1, dd);
+  if (next < now) next = new Date(now.getFullYear() + 1, mm - 1, dd);
+  return Math.round((next - now) / 864e5);
+}
+const peopleChanged = () => { eventYears.clear(); };
+const peopleCount = n => (n === 1 ? '1 person' : `${n} people`);
+// WhatsApp link with a ready greeting. Assumes India (+91) for bare 10-digit mobile numbers.
+function wishUrl(person, kind) {
+  const first = person.name.split(/\s+/)[0];
+  const text = kind === 'anniversary' ? `Happy anniversary, ${first}! 💐 Wishing you both many more happy years.` : `Happy birthday, ${first}! 🎉 Wishing you a wonderful year ahead.`;
+  let digits = String(person.phone || '').replace(/\D/g, '');
+  if (digits.length === 10 && /^[6-9]/.test(digits)) digits = '91' + digits;
+  if (digits.length === 11 && digits.startsWith('0')) digits = '91' + digits.slice(1);
+  return `https://wa.me/${digits.length >= 10 ? digits : ''}?text=${encodeURIComponent(text)}`;
+}
+
+function birthdayStrip(day) {
+  const evs = (eventsByDate(day, day, ['birthdays'])[day] || []);
+  if (!evs.length) return '';
+  return `<section class="bd-strip">${evs.map(e => `
+    <div class="bd-item">
+      <span class="bd-emoji">${e.emoji}</span>
+      <span class="bd-text"><b>${esc(e.t)}</b><span>${e.k === 'birthday' ? 'Birthday today' : 'Anniversary today'}</span></span>
+      <button class="btn primary sm wish-btn" data-action="wish" data-person="${e.personId}" data-kind="${e.k}">${icon('sparkles')}Wish on WhatsApp</button>
+    </div>`).join('')}</section>`;
+}
+
+// vCard (.vcf) — Google Contacts "Export → vCard", iPhone, Outlook
+function parseVcf(text) {
+  const out = [];
+  const unfolded = text.replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '');
+  for (const card of unfolded.split(/BEGIN:VCARD/i).slice(1)) {
+    const lines = card.split('\n');
+    const val = l => l.slice(l.indexOf(':') + 1).trim().replace(/\\([,;\\])/g, '$1').replace(/\\n/gi, ' ');
+    const find = re => lines.find(l => re.test(l));
+    let name = (find(/^FN[;:]/i) && val(find(/^FN[;:]/i))) || '';
+    if (!name && find(/^N[;:]/i)) { const [last, given] = val(find(/^N[;:]/i)).split(';'); name = [given, last].filter(Boolean).join(' '); }
+    const bday = find(/^BDAY[;:]/i) && normBday(val(find(/^BDAY[;:]/i)));
+    let anniv = find(/^(X-)?ANNIVERSARY[;:]/i) && normBday(val(find(/^(X-)?ANNIVERSARY[;:]/i)));
+    if (!anniv) { // Apple/Google style: itemN.X-ABDATE + itemN.X-ABLabel:...Anniversary...
+      const label = find(/^item\d+\.X-ABLabel:.*anniversary/i);
+      if (label) { const item = label.split('.')[0]; const dl = lines.find(l => l.toLowerCase().startsWith(item.toLowerCase() + '.x-abdate')); if (dl) anniv = normBday(val(dl)); }
+    }
+    const tel = find(/^TEL[^:]*CELL/i) || find(/^TEL[;:]/i);
+    if (name && (bday || anniv)) out.push({ name, birthday: bday || null, anniversary: anniv || null, phone: tel ? val(tel).replace(/[^\d+]/g, '') : null });
+  }
+  return out;
+}
+// Google Contacts "Export → Google CSV" (old and new column names)
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  const head = (rows.shift() || []).map(h => h.trim().replace(/^﻿/, ''));
+  const col = name => head.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const out = [];
+  for (const r of rows) {
+    const get = n => { const i = col(n); return i >= 0 ? (r[i] || '').trim() : ''; };
+    const name = get('Name') || [get('First Name') || get('Given Name'), get('Middle Name') || get('Additional Name'), get('Last Name') || get('Family Name')].filter(Boolean).join(' ');
+    const bday = normBday(get('Birthday'));
+    let anniv = null;
+    for (let n = 1; n <= 5 && !anniv; n++) {
+      const type = get(`Event ${n} - Label`) || get(`Event ${n} - Type`);
+      if (/anniversary/i.test(type)) anniv = normBday(get(`Event ${n} - Value`));
+    }
+    const phone = (get('Phone 1 - Value').split(':::')[0] || '').replace(/[^\d+]/g, '') || null;
+    if (name && (bday || anniv)) out.push({ name, birthday: bday, anniversary: anniv, phone });
+  }
+  return out;
+}
+
+function importContacts(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result || '');
+    const found = /BEGIN:VCARD/i.test(text) ? parseVcf(text) : parseCsv(text);
+    if (!found.length) { toast('No birthdays or anniversaries found in that file'); return; }
+    const key = p => `${p.name.toLowerCase()}|${p.birthday || ''}|${p.anniversary || ''}`;
+    const have = new Set(state.people.map(key));
+    const fresh = found.filter(p => !have.has(key(p)) && (validBday(p.birthday) || validBday(p.anniversary)));
+    commit(() => { fresh.forEach(p => state.people.push({ id: uid(), ...p, source: 'contacts' })); peopleChanged(); });
+    toast(`Imported ${peopleCount(fresh.length)}${found.length - fresh.length ? ` · ${found.length - fresh.length} already here` : ''}`, { undo: true });
+    openPeopleManager();
+  };
+  reader.readAsText(file);
+}
+
+function openPeopleManager(editId) {
+  const people = [...state.people].sort((a, b) => Math.min(...[a.birthday, a.anniversary].filter(Boolean).map(nextOccurrence)) - Math.min(...[b.birthday, b.anniversary].filter(Boolean).map(nextOccurrence)));
+  const editing = editId && state.people.find(p => p.id === editId);
+  const f = editing || {};
+  const dateVal = d => (d && !d.startsWith('--') ? d : d ? `2000-${d.slice(2)}` : '');
+  openModal(`
+    <div class="modal-card wide people-card">
+      <div class="modal-title-row"><h2>🎂 Birthdays & anniversaries</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <form class="pp-form" autocomplete="off">
+        <input name="name" placeholder="Name" value="${esc(f.name || '')}" required aria-label="Name">
+        <label>🎂<input name="birthday" type="date" value="${dateVal(f.birthday)}" aria-label="Birthday"></label>
+        <label class="pp-noyear"><input name="noyear" type="checkbox" ${f.birthday && f.birthday.startsWith('--') ? 'checked' : ''}> Year unknown</label>
+        <label>💐<input name="anniversary" type="date" value="${dateVal(f.anniversary)}" aria-label="Anniversary"></label>
+        <input name="phone" type="tel" placeholder="WhatsApp number (optional)" value="${esc(f.phone || '')}" aria-label="Phone">
+        <button class="btn primary sm" type="submit">${editing ? 'Save' : `${icon('plus')}Add`}</button>
+        ${editing ? '<button class="btn ghost sm" type="button" data-pp="cancel-edit">Cancel</button>' : ''}
+      </form>
+      <div class="pp-import">
+        <div><b>Import from Google Contacts</b><span class="muted small">On <a href="https://contacts.google.com" target="_blank" rel="noopener">contacts.google.com</a> choose <b>Export → vCard</b> (or Google CSV), then pick the file here. Only names, birthdays, anniversaries and the first phone number are kept.</span></div>
+        <label class="btn ghost sm">${icon('upload')}Choose file<input type="file" accept=".vcf,.csv,text/vcard,text/csv" data-pp="import" hidden></label>
+      </div>
+      <div class="pp-list">${people.length ? people.map(p => {
+        const next = Math.min(...[p.birthday, p.anniversary].filter(Boolean).map(nextOccurrence));
+        return `<div class="pp-row" data-person="${p.id}">
+          <span class="pp-avatar">${esc(initial(p.name))}</span>
+          <div class="pp-main"><b>${esc(p.name)}</b><span>${[p.birthday && `🎂 ${bdayLabel(p.birthday)}`, p.anniversary && `💐 ${bdayLabel(p.anniversary)}`, p.phone && `📱 ${p.phone}`].filter(Boolean).map(esc).join(' · ')}</span></div>
+          <span class="pp-next ${next === 0 ? 'today' : ''}">${next === 0 ? 'Today' : next === 1 ? 'Tomorrow' : `in ${next} days`}</span>
+          <button class="icon-btn sm" data-pp="edit" title="Edit" aria-label="Edit">${icon('edit')}</button>
+          <button class="icon-btn sm danger" data-pp="delete" title="Remove" aria-label="Remove">${icon('trash')}</button>
+        </div>`;
+      }).join('') : '<p class="muted small pad">No one yet — add a birthday above or import your contacts.</p>'}</div>
+    </div>`, m => {
+    const form = m.querySelector('.pp-form');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const name = String(fd.get('name')).trim();
+      const b = String(fd.get('birthday') || '');
+      const a = String(fd.get('anniversary') || '');
+      if (!name || (!b && !a)) { toast('Add a name and a birthday or anniversary'); return; }
+      const birthday = b ? (fd.get('noyear') ? `--${b.slice(5)}` : b) : null;
+      const person = { id: editing ? editing.id : uid(), name, birthday, anniversary: a || null, phone: String(fd.get('phone') || '').trim() || null, source: editing ? editing.source : 'manual' };
+      commit(() => {
+        const i = state.people.findIndex(p => p.id === person.id);
+        if (i >= 0) state.people[i] = person; else state.people.push(person);
+        peopleChanged();
+      });
+      openPeopleManager();
+    });
+    m.addEventListener('click', async e => {
+      const act = e.target.closest('[data-pp]')?.dataset.pp;
+      const id = e.target.closest('[data-person]')?.dataset.person;
+      if (act === 'edit') openPeopleManager(id);
+      if (act === 'cancel-edit') openPeopleManager();
+      if (act === 'delete') {
+        const p = state.people.find(x => x.id === id);
+        commit(() => { state.people = state.people.filter(x => x.id !== id); peopleChanged(); }, { toast: `Removed ${p.name}` });
+        openPeopleManager();
+      }
+    });
+    m.addEventListener('change', e => { if (e.target.dataset.pp === 'import' && e.target.files[0]) importContacts(e.target.files[0]); });
+    if (editing) setTimeout(() => form.name.focus(), 0);
+  });
 }
 
 function sadhanaStrip() {
@@ -1676,6 +1879,7 @@ function dayEventsBlock(evs) {
     return `<div class="day-ev ${e.k} ${sacred ? 'sacred' : ''}" style="--ec:${s.color}">
       <span class="de-emoji" aria-hidden="true">${emojiOf(e)}</span>
       <div class="de-main"><b>${esc(e.t)}</b><span class="de-meta">${esc(meta)}</span>${e.note ? `<span class="de-note">${esc(e.note)}</span>` : ''}</div>
+      ${e.personId ? `<button class="btn primary sm wish-btn" data-action="wish" data-person="${e.personId}" data-kind="${e.k}" title="Send wishes on WhatsApp">${icon('sparkles')}<span>Wish</span></button>` : ''}
       <button class="btn ghost sm" data-action="plan-event" data-ev="${e.id}" title="Create a task for this">${icon('plus')}<span>Plan</span></button>
     </div>`;
   }).join('')}</div>`;
@@ -2354,6 +2558,10 @@ function openSettings() {
         <button class="btn ghost sm" data-act="location">${icon('mapPin')}Change</button>
       </div>
       <div class="set-row">
+        <div><b>Birthdays & anniversaries</b><div class="muted small">${state.people.length ? peopleCount(state.people.length) + ' saved' : 'Add people or import from Google Contacts'}</div></div>
+        <button class="btn ghost sm" data-act="people">🎂 Manage</button>
+      </div>
+      <div class="set-row">
         <div><b>Daily panchang on Today</b><div class="muted small">Sunrise, tithi, Brahma Muhurta and Rahu Kaal</div></div>
         <div class="seg" data-set="showPanchang">${[['true', 'Show'], ['false', 'Hide']].map(([v, l]) => `<button class="${String(s.showPanchang !== false) === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>
       </div>
@@ -2384,6 +2592,7 @@ function openSettings() {
       if (act === 'export') exportData();
       if (act === 'account') openAccount();
       if (act === 'location') openLocationPicker();
+      if (act === 'people') openPeopleManager();
       if (act === 'notify') { await askNotifyPermission(true); openSettings(); }
       if (act === 'reset') {
         const ok = await confirmDialog({ title: 'Reset everything?', message: 'All lists and tasks on this device will be replaced with the starter set. Export a backup first if you want to keep them.', confirm: 'Reset' });
@@ -2673,6 +2882,12 @@ async function handleAction(a, el, id) {
     }
     case 'plan-event': planEvent(el.dataset.ev); break;
     case 'pick-location': openLocationPicker(); break;
+    case 'people': openPeopleManager(); break;
+    case 'wish': {
+      const p = state.people.find(x => x.id === el.dataset.person);
+      if (p) openLink(wishUrl(p, el.dataset.kind));
+      break;
+    }
     case 'sd-toggle': togglePractice(el.dataset.p, el.dataset.day || todayStr()); break;
     case 'sd-day': {
       const cur = ui.sadhanaDay || todayStr();
@@ -3036,6 +3251,15 @@ function scheduleNativeReminders() {
         fire,
         extra: { taskId: t.id },
       }));
+      // Birthdays & anniversaries at 9 AM on the day, next 30 days
+      const bdays = eventsByDate(todayStr(), ymd(addDays(new Date(), 30)), ['birthdays']);
+      for (const [day, evs] of Object.entries(bdays)) {
+        for (const e of evs) {
+          const at = parseYmd(day);
+          at.setHours(9, 0, 0, 0);
+          if (at.getTime() > now + 5000) items.push({ id: notifId(`bd:${e.personId}:${e.k}:${day}`), title: `${e.emoji} ${e.t}`, body: 'Tap to send your wishes', fire: at.getTime(), extra: { personId: e.personId, kind: e.k } });
+        }
+      }
       // Practice reminders for the next 7 days (skipping days already ticked)
       for (const p of activePractices()) {
         if (!p.remind) continue;
@@ -3076,6 +3300,7 @@ function bindNative() {
   native.Notifications.addListener('localNotificationActionPerformed', ev => {
     const extra = (ev && ev.notification && ev.notification.extra) || {};
     if (extra.practiceId) { navigate('smart:sadhana'); return; }
+    if (extra.personId) { navigate('smart:today'); return; }
     const id = extra.taskId;
     const t = id && getTask(id);
     if (!t) return;

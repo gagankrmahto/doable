@@ -906,6 +906,37 @@ button.inline-add:hover { color: var(--accent); background: var(--accent-softer)
 .pe-time .i { width: 14px; height: 14px; }
 .pe-time input { width: 104px; }
 
+/* Birthdays */
+.bd-strip { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.bd-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, #d6409f 12%, var(--surface)), color-mix(in srgb, #f5b301 10%, var(--surface))); border: 1px solid color-mix(in srgb, #d6409f 30%, transparent); }
+.bd-emoji { font-size: 28px; }
+.bd-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bd-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-text span { font-size: 12px; color: var(--text-2); }
+.btn.primary.wish-btn { background: #25d366; color: #fff; }
+.btn.primary.wish-btn:hover { background: #1fb457; }
+.cal-ev.birthday, .cal-ev.anniversary { background: color-mix(in srgb, #d6409f 14%, transparent); color: color-mix(in srgb, #b02a82 80%, var(--text)); }
+.day-ev.birthday, .day-ev.anniversary { --ec: #d6409f; }
+.pp-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 10px 14px; border-radius: 12px; border: 1px dashed color-mix(in srgb, #d6409f 40%, var(--border)); font-size: 13px; font-weight: 600; color: var(--text-2); }
+.pp-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pp-form input[name="name"] { flex: 1 1 180px; }
+.pp-form input[name="phone"] { flex: 1 1 200px; }
+.pp-form input:not([type="checkbox"]) { height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); outline: none; min-width: 0; font-size: 13px; }
+.pp-form input:focus { border-color: var(--accent); }
+.pp-form label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.pp-noyear input { accent-color: var(--accent); }
+.pp-import { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); }
+.pp-import > div { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.pp-import a { color: var(--accent); }
+.pp-list { display: flex; flex-direction: column; max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; }
+.pp-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--line); }
+.pp-row:last-child { border-bottom: 0; }
+.pp-avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #d6409f, #f5b301); color: #fff; font-weight: 800; flex: none; }
+.pp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pp-main span { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-next { font-size: 12px; font-weight: 700; color: var(--text-3); white-space: nowrap; }
+.pp-next.today { color: #d6409f; }
+
 /* Location picker */
 .loc-current { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; background: var(--surface-2); }
 .loc-current > .i { width: 22px; height: 22px; color: var(--danger); }
@@ -1288,6 +1319,10 @@ body.details-open .details { display: grid; position: fixed; inset: 0; z-index: 
   .pc-items { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
   .pc-item.tithi { grid-column: 1 / -1; }
   .sd-grid { grid-template-columns: 1fr; }
+  .pp-form input[name="name"], .pp-form input[name="phone"] { flex-basis: 100%; }
+  .pp-import { flex-direction: column; align-items: stretch; }
+  .bd-item { flex-wrap: wrap; }
+  .bd-item .wish-btn { width: 100%; justify-content: center; }
   .sd-head { flex-wrap: wrap; }
   .pe-row { grid-template-columns: 44px 1fr auto; }
   .pe-days { grid-column: 1 / -1; justify-content: space-between; }
