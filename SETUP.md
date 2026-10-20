@@ -87,6 +87,17 @@ Then click **Cloud sync** (bottom of the sidebar), create an account once, and s
 
 ---
 
+## Ask Claude (optional)
+
+The **Ask Claude** button (top right) opens an assistant that can answer questions about your day and add, move or complete tasks, log habits and plan courses for you. Every change it makes can be undone in one tap.
+
+It uses your own Anthropic API key, so usage is billed to your Anthropic account:
+
+1. Create a key at [console.anthropic.com → API keys](https://console.anthropic.com/settings/keys) (add a few dollars of credit under **Billing**).
+2. In Doable, tap **Ask Claude** and paste the key.
+
+The key is stored only on that device. It isn't synced to your other devices or sent anywhere except Anthropic, so paste it once on each device where you want the assistant. Your messages, and the task details Claude looks up to answer, are sent to Anthropic.
+
 ## How sync works
 
 - **Offline-first:** every device saves to itself first, so the app is instant and works without internet. Changes upload when you're back online.

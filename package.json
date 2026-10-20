@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node test/sync.test.js && node test/moon.test.js && node test/contacts.test.js && node test/ics.test.js && node test/planner.test.js",
+    "test": "node test/sync.test.js && node test/moon.test.js && node test/contacts.test.js && node test/ics.test.js && node test/planner.test.js && node test/assistant.test.js",
     "vendor": "node scripts/vendor.js",
     "sync:android": "npm run vendor && cap sync android",
     "build:android": "npm run sync:android && cd android && gradlew assembleRelease",
@@ -18,8 +18,10 @@
     "@capacitor/local-notifications": "^8.3.1"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.136.0",
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.3",
-    "@supabase/supabase-js": "^2.118.0"
+    "@supabase/supabase-js": "^2.118.0",
+    "esbuild": "^0.28.2"
   }
 }

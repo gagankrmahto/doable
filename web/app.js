@@ -66,6 +66,8 @@ const ICONS = {
   edit: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   arrowRight: '<path d="M5 12h14M12 5l7 7-7 7"/>',
+  arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
   flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
   sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
   status: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
@@ -524,23 +526,10 @@ function toggleComplete(id) {
   const todayActiveBefore = activeTodayCount();
   commit(() => {
     if (!wasDone) {
-      t.done = true;
-      t.status = 'done';
-      t.doneAt = Date.now();
-      bumpStat(1);
-      if (t.repeat && !t.parentId) {
-        const next = newTask({ ...t, id: uid(), done: false, status: 'todo', doneAt: null, createdAt: Date.now(), due: nextDue(t), notifiedFor: null, myDay: null });
-        state.tasks.push(next);
-        childrenOf(t.id).forEach(k => state.tasks.push(newTask({ ...k, id: uid(), parentId: next.id, done: false, status: 'todo', doneAt: null, createdAt: Date.now() })));
-        msg = `Done! Next one: ${fmtDate(next.due)}`;
-      } else {
-        msg = t.parentId ? 'Subtask completed' : 'Task completed';
-      }
+      const next = finishTask(t);
+      msg = next ? `Done! Next one: ${fmtDate(next.due)}` : t.parentId ? 'Subtask completed' : 'Task completed';
     } else {
-      t.done = false;
-      t.status = 'todo';
-      t.doneAt = null;
-      bumpStat(-1);
+      reopenTask(t);
     }
   });
   if (msg) toast(msg, { undo: true });
@@ -548,6 +537,24 @@ function toggleComplete(id) {
     celebrate();
     toast('🎉 All done for today — great work!');
   }
+}
+// Marks a task complete; a repeating task gets its next occurrence (with fresh subtasks), which is returned.
+function finishTask(t) {
+  t.done = true;
+  t.status = 'done';
+  t.doneAt = Date.now();
+  bumpStat(1);
+  if (!t.repeat || t.parentId) return null;
+  const next = newTask({ ...t, id: uid(), done: false, status: 'todo', doneAt: null, createdAt: Date.now(), due: nextDue(t), notifiedFor: null, myDay: null });
+  state.tasks.push(next);
+  childrenOf(t.id).forEach(k => state.tasks.push(newTask({ ...k, id: uid(), parentId: next.id, done: false, status: 'todo', doneAt: null, createdAt: Date.now() })));
+  return next;
+}
+function reopenTask(t) {
+  t.done = false;
+  t.status = 'todo';
+  t.doneAt = null;
+  bumpStat(-1);
 }
 function activeTodayCount() {
   const T = todayStr();
@@ -1069,6 +1076,7 @@ function renderHeader(vm) {
       ${vm.subtitle ? `<span class="crumb-sub">${esc(vm.subtitle)}</span>` : ''}
       <span class="spacer"></span>
       ${vm.progress ? `<div class="mini-progress" title="${vm.progress.done} of ${vm.progress.total} done"><div class="bar"><span style="width:${pct}%"></span></div><b>${pct}%</b></div>` : ''}
+      <button class="ai-btn" data-action="assistant" title="Ask Claude about your tasks, calendar and habits" aria-label="Ask Claude">${icon('sparkles')}<span>Ask Claude</span></button>
       <button class="icon-btn sm" data-action="view-menu" title="More options" aria-label="More options">${icon('more')}</button>
     </div>
     <div class="viewbar">
@@ -2320,7 +2328,7 @@ function plannerResults(f) {
     const fest = (evs[d] || [])[0];
     return `<span class="cp-day"><b>${esc(parseYmd(d).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric' }))}</b><small>${moon}${esc(t.label)}</small>${fest ? `<small class="cp-fest">🪔 ${esc(fest.t)}</small>` : ''}</span>`;
   };
-  return `<p class="muted small cp-count">Checked ${plural(considered, 'possible start')} · best ${options.length > 1 ? options.length + ' options' : 'option'}:</p>
+  return `<div class="cp-count"><p class="muted small">Checked ${plural(considered, 'possible start')} · best ${options.length > 1 ? options.length + ' options' : 'option'}:</p><button class="link-btn" data-cp="ask">${icon('sparkles')}Ask Claude to compare</button></div>
     ${options.map((o, i) => `<article class="cp-opt" style="--rc:${PLAN_RATING[o.rating]}">
       <header><span class="cp-rank">${i + 1}</span><b>${esc(fmtDate(o.start))}${o.days.length > 1 ? ` – ${esc(fmtDate(o.end))}` : ''}</b><span class="cp-rating">${esc(o.rating)}</span></header>
       <div class="cp-days">${o.days.map(dayChip).join('')}</div>
@@ -2391,11 +2399,24 @@ function openCoursePlanner() {
       }
       const add = e.target.closest('[data-cp="add"]');
       if (add) addCourse(add.dataset.start);
+      if (e.target.closest('[data-cp="ask"]')) {
+        closeModal();
+        const wd = f.startDays.map(d => WEEKDAYS[d]).join('/') || 'any day';
+        openAssistant(`Help me choose dates for a ${f.days}-day ${f.name} (${fmtTime(f.time)}, ${f.minutes / 60} h a day), starting ${wd} between ${f.from} and ${f.to}. Compare the best options and recommend one.`);
+      }
     });
   });
 }
 function addCourse(start) {
-  const f = plannerForm();
+  const { tasks, list, name, range, opt } = buildCourseTasks(start, plannerForm());
+  commit(() => { state.tasks.push(...tasks); ui.flashId = tasks[0].id; });
+  closeModal();
+  toast(`${name} added to ${list.name} · ${range}`, {
+    action: { label: 'Show', fn: () => { const d = parseYmd(opt.start); ui.calMonth = new Date(d.getFullYear(), d.getMonth(), 1); ui.calDay = opt.start; navigate('smart:calendar'); } },
+  });
+}
+// Session tasks (and the optional organiser checklist) for a course starting on `start`
+function buildCourseTasks(start, f) {
   const preset = CoursePlanner.PRESETS.find(p => p.id === f.preset) || {};
   const opt = CoursePlanner.scoreStart(start, { ...f, today: todayStr() }, plannerContext(f));
   const list = spaceList('aol') || getList(defaultListId());
@@ -2418,11 +2439,7 @@ function addCourse(start) {
   }
   let order = edgeOrder(list.id, null, true);
   tasks.forEach(t => { t.order = order--; });
-  commit(() => { state.tasks.push(...tasks); ui.flashId = tasks[0].id; });
-  closeModal();
-  toast(`${name} added to ${list.name} · ${range}`, {
-    action: { label: 'Show', fn: () => { const d = parseYmd(opt.start); ui.calMonth = new Date(d.getFullYear(), d.getMonth(), 1); ui.calDay = opt.start; navigate('smart:calendar'); } },
-  });
+  return { tasks, list, name, range, opt };
 }
 
 function calendarFilters() {
@@ -3429,6 +3446,7 @@ async function handleAction(a, el, id) {
     case 'ev-join': { const e = findEvent(el.dataset.ev); if (e && e.link) openLink(e.link); break; }
     case 'gcal': openGcalManager(); break;
     case 'course-planner': openCoursePlanner(); break;
+    case 'assistant': if (assistantOpen()) closeAssistant(); else openAssistant(); break;
     case 'pick-location': openLocationPicker(); break;
     case 'people': openPeopleManager(); break;
     case 'wish': {
@@ -3688,6 +3706,7 @@ function bindEvents() {
       if (ui.menu) { closeMenu(); return; }
       if (modalOpen()) { closeModal(); return; }
       if (typing) { tgt.blur(); return; }
+      if (assistantOpen()) { closeAssistant(); return; }
       if (document.body.classList.contains('sidebar-open')) { document.body.classList.remove('sidebar-open'); return; }
       if (ui.openId) { closeDetails(); return; }
       if (ui.search) { handleAction('clear-search'); return; }
@@ -3916,6 +3935,7 @@ function bindNative() {
   native.App.addListener('backButton', () => {
     if (ui.menu) return closeMenu();
     if (modalOpen()) return closeModal();
+    if (assistantOpen()) return closeAssistant();
     if (document.body.classList.contains('sidebar-open')) return document.body.classList.remove('sidebar-open');
     if (ui.openId) return closeDetails();
     if (ui.inlineKey) { ui.inlineKey = null; return renderMain(); }
@@ -3938,6 +3958,602 @@ function bindNative() {
     if (t.link && !t.done) openLink(t.link); // "Tap to join"
   });
   scheduleNativeReminders();
+}
+
+/* ---------- Claude assistant ----------
+ * Talks to Claude Opus 5.5 with the user's own Anthropic API key, kept only on this device.
+ * Claude works through the tools below; every change it makes can be undone in one step. */
+const AI_KEY = 'doable:claude-key';
+const AI_CHAT = 'doable:claude-chat';
+const aiKey = () => { try { return localStorage.getItem(AI_KEY) || ''; } catch { return ''; } };
+let anthropicSdk = null;
+let aiClient = null;
+function loadAnthropic() {
+  if (window.Anthropic) return Promise.resolve(window.Anthropic);
+  anthropicSdk = anthropicSdk || new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/anthropic.js';
+    s.onload = () => (window.Anthropic ? resolve(window.Anthropic) : reject(new Error('The Claude SDK didn’t load.')));
+    s.onerror = () => { anthropicSdk = null; s.remove(); reject(new Error('Couldn’t load the Claude SDK. Are you offline?')); };
+    document.head.appendChild(s);
+  });
+  return anthropicSdk;
+}
+async function aiGetClient() {
+  const key = aiKey();
+  if (!key) throw new Error('Add your Anthropic API key first.');
+  const Anthropic = await loadAnthropic();
+  if (!aiClient || aiClient.key !== key) aiClient = { key, client: new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true }) };
+  return aiClient.client;
+}
+
+// Stable for every conversation: never put the date, view or data here (it goes in each user turn)
+const AI_SYSTEM = `You are Claude, the assistant built into Doable, a friendly task manager, calendar and habit tracker used by one person in India. You help them plan their days, capture tasks, organise their four spaces (Personal, Work, Art of Living, NexJyoti NGO), keep their habits going, and choose good dates for Art of Living courses.
+
+How Doable works:
+- Lists hold tasks; each space is backed by a list, and there can be other lists. A task has a title, an optional due date (YYYY-MM-DD) and time (HH:MM, 24-hour), a priority (urgent, high, normal, low), a status (todo, progress, review, done), tags, notes, a star, an optional repeat, and subtasks. Meetings also have a length and an optional video-call link.
+- The calendar shows Indian festivals, Art of Living events, moon days (Purnima, Amavasya, Ekadashi, Pradosh, Shivaratri), birthdays and anniversaries, NGO days and any connected Google calendars. The panchang (sunrise, sunset, tithi, Rahu Kaal, Brahma Muhurta) follows the user's location.
+- Habits are daily practices (for example Sudarshan Kriya, meditation, drinking water) with check-ins, counts and streaks.
+
+How to help:
+- Each user message begins with a context line giving the current date, time, location and screen. Use it to resolve words like today, tomorrow or this Friday.
+- Look things up with the tools before answering questions about the user's tasks, calendar, panchang or habits. Never invent tasks, events, dates or tithis.
+- When the user asks you to add, change, complete or reschedule something, do it with the tools right away, then say briefly what you did. Every change you make can be undone from the app. Ask first only when the request is unclear or would change more than 15 tasks.
+- Put new tasks in the list that fits (Art of Living work in the Art of Living space, office work in Work); otherwise leave the list out and Doable uses the default list.
+- For course dates, call suggest_course_dates and explain the trade-offs of the best options in plain words. Schedule a course only after the user picks a date, or when they clearly asked you to.
+- Keep replies short and warm, written for a phone screen: a sentence or two, or a short bullet list. Write times like 6:30 PM and dates like Fri 23 Oct.`;
+
+const D = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Date as YYYY-MM-DD' };
+const HM = { type: 'string', pattern: '^\\d{2}:\\d{2}$', description: 'Time as HH:MM (24-hour)' };
+const PRIO = { urgent: 1, high: 2, normal: 3, low: 4 };
+const PRIO_NAME = { 1: 'urgent', 2: 'high', 3: 'normal', 4: 'low' };
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const dayLabel = d => parseYmd(d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+
+function aiFindList(name) {
+  if (!name) return null;
+  const n = String(name).trim().toLowerCase();
+  return getList(name) || state.lists.find(l => l.name.toLowerCase() === n)
+    || (SPACES.find(s => s.aliases.includes(n) || s.name.toLowerCase() === n) && spaceList(SPACES.find(s => s.aliases.includes(n) || s.name.toLowerCase() === n).id))
+    || state.lists.find(l => l.name.toLowerCase().includes(n)) || null;
+}
+function aiTask(t) {
+  const o = { id: t.id, title: t.title, list: (getList(t.listId) || {}).name || null, status: t.status, done: t.done };
+  if (t.due) o.due = t.due;
+  if (t.time) o.time = t.time;
+  if (t.priority) o.priority = PRIO_NAME[t.priority];
+  if (t.tags.length) o.tags = t.tags;
+  if (t.starred) o.starred = true;
+  if (t.repeat) o.repeat = repeatLabel(t.repeat);
+  if (isMeeting(t)) o.meeting = { minutes: meetingMinutes(t), link: t.link || null };
+  if (t.notes) o.notes = t.notes.slice(0, 280);
+  if (t.parentId) o.parent_id = t.parentId;
+  const kids = childrenOf(t.id);
+  if (kids.length) o.subtasks = `${kids.filter(k => k.done).length}/${kids.length} done`;
+  return o;
+}
+const aiWhen = t => [t.due && dayLabel(t.due), t.time && fmtTime(t.time)].filter(Boolean).join(' ');
+// One undo step covers everything Claude changes while answering a message
+function aiMutate(ctx, fn) {
+  if (!ctx.snap) { snapshot(); ctx.snap = true; }
+  fn();
+  touch();
+  save();
+  ctx.changes++;
+  render({ keepDetails: true });
+}
+function aiCalendarSets() {
+  return [...Object.keys(EVENT_SETS), ...gcals().map(gcalSetId)].filter(layerOn);
+}
+
+const AI_TOOLS = [
+  {
+    name: 'get_overview',
+    description: 'Get a summary of the workspace: lists and spaces with open task counts, overdue/today/upcoming counts, today\'s habits and connected Google calendars. Call this first when you need list names or a quick picture of the user\'s day.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    run() {
+      const T = todayStr();
+      const top = state.tasks.filter(t => !t.parentId && !t.done);
+      const week = ymd(addDays(parseYmd(T), 7));
+      return {
+        result: {
+          today: T,
+          lists: state.lists.map(l => ({ id: l.id, name: l.name, space: l.space || null, open_tasks: top.filter(t => t.listId === l.id).length })),
+          default_list: (getList(defaultListId()) || {}).name,
+          counts: { overdue: top.filter(t => t.due && t.due < T).length, due_today: top.filter(t => t.due === T).length, next_7_days: top.filter(t => t.due > T && t.due <= week).length, no_date: top.filter(t => !t.due).length, completed_today: state.stats.completions[T] || 0 },
+          habits_today: activePractices().filter(p => scheduledOn(p, T)).map(p => ({ name: p.name, done: isDone(T, p.id), ...(p.type === 'count' && { progress: `${countOf(T, p)}/${p.target} ${p.unit || ''}`.trim() }) })),
+          google_calendars: gcals().map(c => c.name),
+          people_with_birthdays: state.people.length,
+          location: currentLocation().name,
+        },
+      };
+    },
+  },
+  {
+    name: 'search_tasks',
+    description: 'Find tasks by text, list, status, tag or due-date range. Call this before changing or completing existing tasks (you need their ids) and to answer questions like "what\'s due this week".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Words to match in the title, notes or tags' },
+        list: { type: 'string', description: 'List or space name' },
+        status: { type: 'string', enum: ['todo', 'progress', 'review', 'done'] },
+        tag: { type: 'string' },
+        due_from: D, due_to: D,
+        overdue: { type: 'boolean', description: 'Only open tasks due before today' },
+        include_done: { type: 'boolean', description: 'Include completed tasks (default false)' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+    run(i) {
+      const T = todayStr();
+      const list = i.list && aiFindList(i.list);
+      if (i.list && !list) throw new Error(`No list called “${i.list}”. Lists: ${state.lists.map(l => l.name).join(', ')}`);
+      const q = (i.query || '').toLowerCase().split(/\s+/).filter(Boolean);
+      const out = state.tasks.filter(t => (i.include_done || i.status === 'done' || !t.done)
+        && (!list || t.listId === list.id)
+        && (!i.status || t.status === i.status)
+        && (!i.tag || t.tags.includes(i.tag.replace(/^#/, '').toLowerCase()))
+        && (!i.due_from || (t.due && t.due >= i.due_from))
+        && (!i.due_to || (t.due && t.due <= i.due_to))
+        && (!i.overdue || (t.due && t.due < T && !t.done))
+        && q.every(w => `${t.title} ${t.notes} ${t.tags.join(' ')}`.toLowerCase().includes(w)))
+        .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || (a.time || '99').localeCompare(b.time || '99') || prioRank(a.priority) - prioRank(b.priority));
+      const limit = i.limit || 40;
+      return { result: { count: out.length, tasks: out.slice(0, limit).map(aiTask), ...(out.length > limit && { more: out.length - limit }) } };
+    },
+  },
+  {
+    name: 'create_tasks',
+    description: 'Create one or more tasks, meetings or subtasks. Use when the user asks to add, remind, plan or schedule something. Give a duration_minutes or link to make it a meeting with a time range and Join button.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tasks: {
+          type: 'array', minItems: 1, maxItems: 30,
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', maxLength: 300 },
+              list: { type: 'string', description: 'List or space name; omit for the default list' },
+              due: D, time: HM,
+              duration_minutes: { type: 'integer', minimum: 5, maximum: 1440 },
+              link: { type: 'string', description: 'Video-call or web link' },
+              priority: { type: 'string', enum: ['urgent', 'high', 'normal', 'low'] },
+              notes: { type: 'string', maxLength: 4000 },
+              tags: { type: 'array', items: { type: 'string' }, maxItems: 10 },
+              starred: { type: 'boolean' },
+              repeat: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] },
+              remind_minutes_before: { type: 'integer', minimum: 0, maximum: 10080, description: 'Reminder before the due time (needs a due date)' },
+              parent_id: { type: 'string', description: 'Make it a subtask of this task id' },
+            },
+            required: ['title'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['tasks'],
+      additionalProperties: false,
+    },
+    run(i, ctx) {
+      const made = [];
+      for (const x of i.tasks) {
+        const parent = x.parent_id && getTask(x.parent_id);
+        if (x.parent_id && !parent) throw new Error(`No task with id ${x.parent_id}`);
+        const list = parent ? getList(parent.listId) : (x.list && aiFindList(x.list)) || getList(defaultListId());
+        if (x.list && !parent && !aiFindList(x.list)) throw new Error(`No list called “${x.list}”. Lists: ${state.lists.map(l => l.name).join(', ')}`);
+        const link = x.link ? safeUrl(x.link) : null;
+        const meeting = !!(x.duration_minutes || (link && isCallUrl(link)));
+        made.push(newTask({
+          title: x.title.trim(), listId: list.id, parentId: parent ? parent.id : null,
+          due: x.due || (x.repeat ? todayStr() : null), time: x.time || null,
+          priority: x.priority ? PRIO[x.priority] : 0, notes: [x.notes, link && !meeting ? link : ''].filter(Boolean).join('\n'),
+          tags: (x.tags || []).map(g => g.replace(/^#/, '').toLowerCase()).filter(Boolean), starred: !!x.starred,
+          repeat: x.repeat ? { freq: x.repeat, interval: 1 } : null,
+          remind: x.remind_minutes_before != null && (x.due || x.repeat) ? x.remind_minutes_before : null,
+          type: meeting ? 'meeting' : 'task', link: meeting ? link : null, duration: meeting ? x.duration_minutes || 30 : null,
+          order: edgeOrder(list.id, parent ? parent.id : null, !parent),
+        }));
+      }
+      aiMutate(ctx, () => { state.tasks.push(...made); ui.flashId = made[0].id; });
+      return {
+        result: { created: made.map(aiTask) },
+        summary: made.length === 1 ? `Added “${made[0].title}”${aiWhen(made[0]) ? ` · ${aiWhen(made[0])}` : ''}` : `Added ${made.length} tasks`,
+        changed: true,
+      };
+    },
+  },
+  {
+    name: 'update_tasks',
+    description: 'Change, reschedule, move, complete or reopen existing tasks by id (find ids with search_tasks). Set due or time to null to clear them; done true completes a task (a repeating task then moves to its next date).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        updates: {
+          type: 'array', minItems: 1, maxItems: 50,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              title: { type: 'string', maxLength: 300 },
+              due: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+              time: { type: ['string', 'null'], pattern: '^\\d{2}:\\d{2}$' },
+              duration_minutes: { type: 'integer', minimum: 5, maximum: 1440 },
+              status: { type: 'string', enum: ['todo', 'progress', 'review', 'done'] },
+              done: { type: 'boolean' },
+              priority: { type: 'string', enum: ['urgent', 'high', 'normal', 'low', 'none'] },
+              list: { type: 'string' },
+              notes: { type: 'string', maxLength: 4000 },
+              tags: { type: 'array', items: { type: 'string' }, maxItems: 10 },
+              starred: { type: 'boolean' },
+              link: { type: ['string', 'null'] },
+            },
+            required: ['id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['updates'],
+      additionalProperties: false,
+    },
+    run(i, ctx) {
+      const plan = i.updates.map(u => {
+        const t = getTask(u.id);
+        if (!t) throw new Error(`No task with id ${u.id}`);
+        if (u.list && !aiFindList(u.list)) throw new Error(`No list called “${u.list}”`);
+        return { t, u };
+      });
+      const notes = [];
+      aiMutate(ctx, () => {
+        for (const { t, u } of plan) {
+          if (u.title) t.title = u.title.trim();
+          if ('due' in u) t.due = u.due;
+          if ('time' in u) t.time = u.time;
+          if (u.duration_minutes) { t.duration = u.duration_minutes; t.type = 'meeting'; }
+          if (u.priority) t.priority = u.priority === 'none' ? 0 : PRIO[u.priority];
+          if (u.list) { const l = aiFindList(u.list); if (!t.parentId) t.listId = l.id; }
+          if ('notes' in u) t.notes = u.notes;
+          if (u.tags) t.tags = u.tags.map(g => g.replace(/^#/, '').toLowerCase()).filter(Boolean);
+          if ('starred' in u) t.starred = u.starred;
+          if ('link' in u) { t.link = u.link ? safeUrl(u.link) : null; if (t.link && isCallUrl(t.link)) t.type = 'meeting'; }
+          const wantDone = u.done === true || u.status === 'done';
+          if (wantDone && !t.done) { const next = finishTask(t); if (next) notes.push(`next “${next.title}” on ${next.due}`); }
+          else if ((u.done === false || (u.status && u.status !== 'done')) && t.done) reopenTask(t);
+          if (u.status && u.status !== 'done') t.status = u.status;
+        }
+      });
+      const one = plan.length === 1 && plan[0].t;
+      return {
+        result: { updated: plan.map(p => aiTask(p.t)), ...(notes.length && { repeats: notes }) },
+        summary: one ? `${one.done ? 'Completed' : 'Updated'} “${one.title}”${!one.done && aiWhen(one) ? ` · ${aiWhen(one)}` : ''}` : `Updated ${plan.length} tasks`,
+        changed: true,
+      };
+    },
+  },
+  {
+    name: 'get_calendar',
+    description: 'Get what is on the calendar between two dates (at most 62 days): festivals, Art of Living events, moon days, birthdays, NGO days, Google Calendar events and dated tasks, with each day\'s tithi. Call this for questions about schedules, free days, festivals or upcoming events.',
+    input_schema: {
+      type: 'object',
+      properties: { from: D, to: D, include_tasks: { type: 'boolean', description: 'Include dated tasks (default true)' } },
+      required: ['from', 'to'],
+      additionalProperties: false,
+    },
+    run(i) {
+      if (i.to < i.from) throw new Error('`to` is before `from`');
+      const to = i.to > shiftDay(i.from, 61) ? shiftDay(i.from, 61) : i.to;
+      const evs = eventsByDate(i.from, to, aiCalendarSets());
+      const days = [];
+      for (let d = i.from; d <= to; d = shiftDay(d, 1)) {
+        const events = (evs[d] || []).map(e => ({ title: e.t, calendar: setOf(e).name, ...(e.time && { time: e.time }), ...(e.endTime && { end: e.endTime }), ...(e.allDay && { all_day: true }), ...(e.k === 'holiday' && { public_holiday: true }), ...(e.location && { location: e.location }), ...(e.link && { link: e.link }) }));
+        const tasks = i.include_tasks === false ? [] : state.tasks.filter(t => t.due === d && !t.parentId).map(t => ({ id: t.id, title: t.title, ...(t.time && { time: t.time }), ...(isMeeting(t) && { minutes: meetingMinutes(t) }), done: t.done, list: (getList(t.listId) || {}).name }));
+        if (events.length || tasks.length) days.push({ date: d, weekday: WEEKDAYS[parseYmd(d).getDay()], tithi: window.Panchang ? Panchang.dayInfo(d).tithi.label : undefined, events, tasks });
+      }
+      return { result: { from: i.from, to, days, ...(to !== i.to && { note: 'Trimmed to 62 days' }) } };
+    },
+  },
+  {
+    name: 'get_panchang',
+    description: 'Get the panchang for a date at the user\'s location: sunrise, sunset, tithi (and when it ends), Brahma Muhurta and Rahu Kaal. Call this for questions about tithis, auspicious timing or meditation times.',
+    input_schema: { type: 'object', properties: { date: D }, additionalProperties: false },
+    run(i) {
+      const d = i.date || todayStr();
+      const p = Panchang.dayInfo(d);
+      const hm = x => clock(x);
+      return { result: { date: d, location: currentLocation().name, sunrise: hm(p.sunrise), sunset: hm(p.sunset), tithi: p.tithi.label, paksha: p.tithi.paksha, tithi_ends: clockOn(p.tithi.endsAt, d), brahma_muhurta: `${hm(p.brahma[0])}–${hm(p.brahma[1])}`, rahu_kaal: `${hm(p.rahu[0])}–${hm(p.rahu[1])}` } };
+    },
+  },
+  {
+    name: 'suggest_course_dates',
+    description: 'Score every possible start date for a course or multi-day event and return the best options with reasons (moon and tithi, festivals, weekends, Rahu Kaal, promotion time, clashes with the user\'s tasks and meetings). Call this whenever the user asks when to hold a course, workshop or retreat.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        course: { type: 'string', enum: CoursePlanner.PRESETS.map(p => p.id), description: CoursePlanner.PRESETS.map(p => `${p.id} = ${p.name} (${p.days} day${p.days > 1 ? 's' : ''}, ${p.time}, ${p.minutes / 60} h)`).join('; ') },
+        name: { type: 'string', description: 'Name for a custom course' },
+        days: { type: 'integer', minimum: 1, maximum: 14 },
+        start_time: HM,
+        hours_per_day: { type: 'number', minimum: 0.5, maximum: 16 },
+        earliest_start: D, latest_start: D,
+        start_weekdays: { type: 'array', items: { type: 'string', enum: WEEKDAYS }, description: 'Allowed start days; empty for any day' },
+        avoid_my_clashes: { type: 'boolean', description: 'Check the user\'s tasks and meetings (default true)' },
+      },
+      additionalProperties: false,
+    },
+    run(i) {
+      const f = aiPlannerForm(i);
+      const { options, considered } = CoursePlanner.suggest({ ...f, today: todayStr() }, plannerContext(f));
+      return {
+        result: {
+          course: f.name, days: f.days, start_time: f.time, hours_per_day: f.minutes / 60, window: [f.from, f.to], considered,
+          options: options.map(o => ({ start: o.start, end: o.end, rating: o.rating, score: o.score, days: o.days.map(d => `${dayLabel(d)} · ${Panchang.dayInfo(d).tithi.label}`), reasons: o.reasons.map(r => `${r.kind === 'good' ? '+' : r.kind === 'bad' ? '-' : '·'} ${r.text}`) })),
+        },
+        summary: `Checked ${plural(considered, 'start date')} for ${f.name}`,
+      };
+    },
+  },
+  {
+    name: 'schedule_course',
+    description: 'Add a course to the Art of Living space: one session task per day (with time and reminder) and optionally an organiser checklist (venue, registrations, invites, reminders, follow-up). Use after the user picks a start date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        start: D,
+        course: { type: 'string', enum: CoursePlanner.PRESETS.map(p => p.id) },
+        name: { type: 'string' },
+        days: { type: 'integer', minimum: 1, maximum: 14 },
+        start_time: HM,
+        hours_per_day: { type: 'number', minimum: 0.5, maximum: 16 },
+        organiser_checklist: { type: 'boolean', description: 'Default true' },
+      },
+      required: ['start'],
+      additionalProperties: false,
+    },
+    run(i, ctx) {
+      const f = { ...aiPlannerForm(i), checklist: i.organiser_checklist !== false };
+      const { tasks, list, name, range } = buildCourseTasks(i.start, f);
+      aiMutate(ctx, () => { state.tasks.push(...tasks); ui.flashId = tasks[0].id; });
+      return { result: { list: list.name, created: tasks.map(aiTask) }, summary: `Scheduled ${name} · ${range}${f.checklist ? ' + organiser checklist' : ''}`, changed: true };
+    },
+  },
+  {
+    name: 'get_habits',
+    description: 'Get the user\'s habits with today\'s progress, current and best streaks, and check-ins for the last few days. Call this for questions about habits, sadhana or streaks.',
+    input_schema: { type: 'object', properties: { days: { type: 'integer', minimum: 1, maximum: 60, description: 'How many past days of check-ins (default 7)' } }, additionalProperties: false },
+    run(i) {
+      const T = todayStr();
+      const n = i.days || 7;
+      return {
+        result: activePractices().map(p => {
+          const s = streakOf(p);
+          const recent = [];
+          for (let k = n - 1; k >= 0; k--) {
+            const d = shiftDay(T, -k);
+            if (!scheduledOn(p, d)) continue;
+            recent.push(`${d} ${p.type === 'count' ? `${countOf(d, p)}/${p.target}` : isDone(d, p.id) ? 'done' : 'missed'}`);
+          }
+          return { id: p.id, name: p.name, group: p.group, type: p.type, ...(p.type === 'count' && { target: `${p.target} ${p.unit || ''}`.trim() }), days: p.days.map(x => WEEKDAYS[x]), today: !scheduledOn(p, T) ? 'not scheduled' : p.type === 'count' ? `${countOf(T, p)}/${p.target}` : isDone(T, p.id) ? 'done' : 'not yet', current_streak: s.current, best_streak: s.best, recent };
+        }),
+      };
+    },
+  },
+  {
+    name: 'log_habit',
+    description: 'Tick off a habit, or set its count, for today or an earlier day. Use when the user says they did a practice (e.g. "did my kriya", "drank 6 glasses").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        habit: { type: 'string', description: 'Habit name or id' },
+        date: D,
+        done: { type: 'boolean', description: 'For check habits; false clears the check-in (default true)' },
+        count: { type: 'number', minimum: 0, maximum: 9999, description: 'For count habits: the total for that day' },
+      },
+      required: ['habit'],
+      additionalProperties: false,
+    },
+    run(i, ctx) {
+      const n = i.habit.toLowerCase();
+      const p = state.practices.find(x => x.id === i.habit) || activePractices().find(x => x.name.toLowerCase() === n) || activePractices().find(x => x.name.toLowerCase().includes(n));
+      if (!p) throw new Error(`No habit called “${i.habit}”. Habits: ${activePractices().map(x => x.name).join(', ')}`);
+      const d = i.date || todayStr();
+      if (d > todayStr()) throw new Error('Habits can only be logged for today or earlier');
+      const count = p.type === 'count' ? Math.round(i.count != null ? i.count : i.done === false ? 0 : p.target) : null;
+      const done = p.type === 'count' ? count >= p.target : i.done !== false;
+      aiMutate(ctx, () => {
+        const day = (state.sadhana[d] = state.sadhana[d] || {});
+        if ((p.type === 'count' && !count) || (p.type !== 'count' && !done)) delete day[p.id];
+        else day[p.id] = p.type === 'count' ? { done, count, at: Date.now() } : { done: true, at: Date.now() };
+        if (!Object.keys(day).length) delete state.sadhana[d];
+      });
+      return { result: { habit: p.name, date: d, ...(p.type === 'count' ? { count, target: p.target } : { done }), current_streak: streakOf(p).current }, summary: `${p.emoji} ${p.name}: ${p.type === 'count' ? `${count}/${p.target}` : done ? 'done' : 'cleared'}${d !== todayStr() ? ` (${dayLabel(d)})` : ''}`, changed: true };
+    },
+  },
+];
+function aiPlannerForm(i) {
+  const p = CoursePlanner.PRESETS.find(x => x.id === (i.course || 'custom')) || CoursePlanner.PRESETS[0];
+  const T = todayStr();
+  const days = i.days || p.days;
+  return {
+    preset: p.id, name: i.name || (p.id === 'custom' ? 'Course' : p.name), days, time: i.start_time || p.time,
+    minutes: Math.round((i.hours_per_day || p.minutes / 60) * 60),
+    startDays: i.start_weekdays ? i.start_weekdays.map(w => WEEKDAYS.indexOf(w)) : [...p.startDays],
+    from: i.earliest_start || shiftDay(T, 21), to: i.latest_start || shiftDay(i.earliest_start || T, 90),
+    prefs: { moon: true, festivals: true, busy: i.avoid_my_clashes !== false, rahu: true }, checklist: true,
+  };
+}
+
+let assistant = null;
+const getAssistant = () => assistant || (assistant = DoableAssistant.createAssistant({
+  getClient: aiGetClient,
+  tools: AI_TOOLS,
+  system: AI_SYSTEM,
+  storageKey: AI_CHAT,
+  onChange: () => scheduleAiRender(),
+  onChanges: n => toast(`Claude made ${n === 1 ? 'a change' : `${n} changes`}`, { undo: true }),
+}));
+function aiContextLine() {
+  const now = new Date();
+  const loc = currentLocation();
+  const open = ui.openId && getTask(ui.openId);
+  return `Context: it is ${now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} (${todayStr()}), ${clock(now)} (${Intl.DateTimeFormat().resolvedOptions().timeZone}). Location: ${loc.name}${loc.region ? ', ' + loc.region : ''}. Screen: ${(ui.vm && ui.vm.title) || 'Today'}${open ? `; open task “${open.title}” (id ${open.id})` : ''}.`;
+}
+// Escaped text with **bold**, *italic*, `code` and bullet / numbered lists
+function aiMarkdown(text) {
+  const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const out = [];
+  let list = null;
+  for (const line of String(text).split('\n')) {
+    const m = line.match(/^\s*(?:[-*•]|(\d+)[.)])\s+(.*)$/);
+    if (m) {
+      const tag = m[1] ? 'ol' : 'ul';
+      if (!list || list.tag !== tag) { if (list) out.push(`</${list.tag}>`); list = { tag }; out.push(`<${tag}>`); }
+      out.push(`<li>${inline(m[2])}</li>`);
+      continue;
+    }
+    if (list) { out.push(`</${list.tag}>`); list = null; }
+    const h = line.match(/^#{1,4}\s+(.*)$/);
+    if (h) out.push(`<p><b>${inline(h[1])}</b></p>`);
+    else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+  }
+  if (list) out.push(`</${list.tag}>`);
+  return out.join('');
+}
+const AI_SUGGESTIONS = [
+  'What’s on my plate today?',
+  'Plan my week around my meetings',
+  'Best dates for a Happiness Program in December?',
+  'Add: call Mom Sunday 6pm, pay electricity bill by Friday',
+  'Which habits did I miss this week?',
+  'Today’s tithi and Rahu Kaal?',
+];
+// Throttled redraw while Claude streams (a timer, so it keeps up even when the tab isn't painting)
+let aiTimer = 0;
+function scheduleAiRender() {
+  if (!aiTimer) aiTimer = setTimeout(() => { aiTimer = 0; renderAssistantBody(); }, 40);
+}
+function openAssistant(prompt) {
+  document.body.classList.add('assistant-open');
+  renderAssistant();
+  if (prompt && aiKey()) getAssistant().send(prompt, aiContextLine());
+  setTimeout(() => $('#assistant textarea, #assistant input')?.focus(), 50);
+}
+function closeAssistant() {
+  document.body.classList.remove('assistant-open');
+}
+const assistantOpen = () => document.body.classList.contains('assistant-open');
+function renderAssistant() {
+  const el = $('#assistant');
+  const has = !!aiKey();
+  el.innerHTML = `
+    <header class="ai-head">
+      <span class="ai-logo">${icon('sparkles')}</span>
+      <div class="ai-title"><b>Ask Claude</b><span>Opus 5.5 · your tasks, calendar & habits</span></div>
+      ${has ? `<button class="icon-btn sm" data-ai="new" title="New chat" aria-label="New chat">${icon('plus')}</button>
+      <button class="icon-btn sm" data-ai="key" title="API key" aria-label="API key settings">${icon('settings')}</button>` : ''}
+      <button class="icon-btn sm" data-ai="close" title="Close" aria-label="Close">${icon('x')}</button>
+    </header>
+    <div class="ai-body" aria-live="polite"></div>
+    ${has ? `<form class="ai-compose">
+      <textarea rows="1" placeholder="Ask or tell Claude anything…" aria-label="Message Claude" maxlength="8000"></textarea>
+      <button class="btn primary sm ai-send" type="submit" aria-label="Send">${icon('arrowUp')}</button>
+    </form>` : ''}`;
+  renderAssistantBody();
+}
+function renderAssistantBody() {
+  const body = $('#assistant .ai-body');
+  if (!body) return;
+  if (!aiKey() || ui.aiKeyEdit) {
+    body.innerHTML = `<div class="ai-setup">
+      <h3>Connect Claude</h3>
+      <p>Claude can answer questions about your day and add, reschedule or complete tasks for you. It uses your own Anthropic API key, so you’re billed by Anthropic for what you use.</p>
+      <ol><li>Open <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → API keys</a> and create a key.</li><li>Paste it below.</li></ol>
+      <form class="ai-key-form" autocomplete="off">
+        <input type="password" name="key" placeholder="sk-ant-…" aria-label="Anthropic API key" spellcheck="false" autocomplete="off">
+        <button class="btn primary sm" type="submit">Save</button>
+        ${aiKey() ? '<button class="btn ghost sm" type="button" data-ai="cancel-key">Cancel</button>' : ''}
+      </form>
+      <p class="muted small">The key stays on this device only: it isn’t synced or sent anywhere except Anthropic. Your messages, and the task details Claude looks up, go to Anthropic to get answers.</p>
+      ${aiKey() ? '<button class="btn ghost sm danger-text" type="button" data-ai="forget">Remove key from this device</button>' : ''}
+    </div>`;
+    const btn = $('#assistant .ai-compose');
+    if (btn) btn.hidden = true;
+    return;
+  }
+  const compose = $('#assistant .ai-compose');
+  if (compose) compose.hidden = false;
+  const v = getAssistant().view();
+  const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
+  body.innerHTML = !v.items.length
+    ? `<div class="ai-empty"><span class="ai-empty-ico">${icon('sparkles')}</span><h3>How can I help?</h3><p class="muted">I can see your tasks, calendar, panchang and habits, and make changes you can undo.</p>
+        <div class="ai-sugg">${AI_SUGGESTIONS.map(s => `<button class="ai-chip" data-ai-say="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`
+    : v.items.map(it => {
+      if (it.role === 'user') return `<div class="ai-msg from-user">${aiMarkdown(it.text)}</div>`;
+      if (it.role === 'tool') return `<div class="ai-tool ${it.error ? 'err' : it.changed ? 'changed' : ''}">${icon(it.error ? 'alert' : it.changed ? 'check' : 'search')}<span>${esc(it.text)}</span></div>`;
+      if (it.role === 'error') return `<div class="ai-msg is-error">${esc(it.text)}${it.status === 401 ? ' <button class="link-btn" data-ai="key">Update key</button>' : ''}</div>`;
+      if (it.role === 'note') return `<div class="ai-note">${esc(it.text)}</div>`;
+      if (it.refused) return '<div class="ai-msg from-ai muted">I can’t help with that one. Try rephrasing your request.</div>';
+      const progress = it.streaming && it.progress ? it.progress.trim().split('\n').pop() : '';
+      return `<div class="ai-msg from-ai">${it.text ? aiMarkdown(it.text) : ''}${it.streaming && !it.text ? `<div class="ai-typing"><i></i><i></i><i></i>${progress ? `<span>${esc(progress)}</span>` : ''}</div>` : ''}</div>`;
+    }).join('') + (v.size > 400000 ? '<div class="ai-note">This chat is getting long. Start a new chat (+) to keep answers fast.</div>' : '');
+  if (nearBottom || v.busy) body.scrollTop = body.scrollHeight;
+  const send = $('#assistant .ai-send');
+  if (send) {
+    send.innerHTML = v.busy ? icon('x') : icon('arrowUp');
+    send.setAttribute('aria-label', v.busy ? 'Stop' : 'Send');
+    send.classList.toggle('stop', v.busy);
+  }
+}
+function bindAssistant() {
+  const el = $('#assistant');
+  el.addEventListener('click', e => {
+    const say = e.target.closest('[data-ai-say]');
+    if (say) { getAssistant().send(say.dataset.aiSay, aiContextLine()); return; }
+    const act = e.target.closest('[data-ai]')?.dataset.ai;
+    if (act === 'close') closeAssistant();
+    if (act === 'new') { getAssistant().reset(); setTimeout(() => $('#assistant textarea')?.focus(), 0); }
+    if (act === 'key') { ui.aiKeyEdit = true; renderAssistantBody(); }
+    if (act === 'cancel-key') { ui.aiKeyEdit = false; renderAssistant(); }
+    if (act === 'forget') {
+      try { localStorage.removeItem(AI_KEY); } catch { /* storage unavailable */ }
+      aiClient = null;
+      ui.aiKeyEdit = false;
+      renderAssistant();
+      toast('API key removed from this device');
+    }
+  });
+  el.addEventListener('submit', e => {
+    e.preventDefault();
+    if (e.target.matches('.ai-key-form')) {
+      const key = e.target.key.value.trim();
+      if (!/^sk-ant-[\w-]{20,}$/.test(key)) { toast('That doesn’t look like an Anthropic API key (sk-ant-…)'); return; }
+      try { localStorage.setItem(AI_KEY, key); } catch { toast('Couldn’t save the key on this device'); return; }
+      ui.aiKeyEdit = false;
+      renderAssistant();
+      $('#assistant textarea')?.focus();
+      return;
+    }
+    const a = getAssistant();
+    if (a.view().busy) { a.stop(); return; }
+    const ta = e.target.querySelector('textarea');
+    const text = ta.value.trim();
+    if (!text) return;
+    ta.value = '';
+    ta.style.height = '';
+    a.send(text, aiContextLine());
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.stopPropagation(); closeAssistant(); return; }
+    if (e.target.matches('.ai-compose textarea') && e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      e.target.form.requestSubmit();
+    }
+  });
+  el.addEventListener('input', e => {
+    if (!e.target.matches('.ai-compose textarea')) return;
+    e.target.style.height = '';
+    e.target.style.height = Math.min(160, e.target.scrollHeight) + 'px';
+  });
 }
 
 /* ---------- Cloud sync ---------- */
@@ -4219,6 +4835,7 @@ applyLocation();
 if (ensureSpaces() | ensureSadhana()) save();
 bindEvents();
 bindDetails();
+bindAssistant();
 bindNative();
 render();
 if (!authHash && !applyHash()) syncHash();
