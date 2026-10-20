@@ -32,6 +32,7 @@ Then open http://localhost:4321. Without a Supabase project in `web/config.js`, 
 | **Art of Living calendar** (Gurudev's birthday, Guru Purnima, Shivaratri, Navratri schedule, Yoga & Meditation days) | | ✅ |
 | **NGO planning days** (Daan Utsav, Children's Day, Volunteer Day, GivingTuesday, key filing dates…) | | ✅ |
 | One tap turns any festival or event into a planned task | | ✅ |
+| **Course planner**: suggests the best dates for a course (moon & tithi, festivals, weekends, Rahu Kaal, clashes with your calendar) and adds the sessions plus an organiser checklist | | ✅ |
 | **Google Calendar inside Doable**: your events and meetings (with Join for Meet/Zoom/Teams) on every calendar, per-calendar colour and space; Outlook and iCloud feeds work too | | ✅ |
 | Priorities (Urgent/High/Normal/Low with flags), **#tags**, due **times** | | ✅ |
 | Reminders with desktop notifications | | ✅ |

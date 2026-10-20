@@ -1018,6 +1018,42 @@ button.inline-add:hover { color: var(--accent); background: var(--accent-softer)
 .gc-help p { margin: 0; }
 @media (max-width: 560px) { .gc-grid { grid-template-columns: 1fr; } }
 
+/* Course planner */
+.cp-card { max-width: 760px; }
+.cp-bar { border-color: color-mix(in srgb, #f76b15 40%, var(--border)); }
+.layer-chip.cp-chip { color: #f76b15; }
+.cp-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.cp-note { margin: -4px 0 0; }
+.cp-form { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 12px; }
+.cp-form .cp-wide { grid-column: 1 / -1; }
+.cp-wd, .cp-prefs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cp-wd-btn { min-width: 46px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+.cp-wd-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cp-pref { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border); cursor: pointer; }
+.cp-pref input { accent-color: var(--accent); margin: 0; }
+.cp-check { border: 0; padding: 0; }
+.cp-results { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow-y: auto; padding-right: 2px; }
+.cp-count { margin: 0; }
+.cp-opt { --rc: #30a46c; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); border-left: 4px solid var(--rc); background: var(--surface); }
+.cp-opt header { display: flex; align-items: center; gap: 10px; }
+.cp-opt header b { flex: 1; min-width: 0; font-size: 14.5px; }
+.cp-rank { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; background: var(--rc); flex: none; }
+.cp-rating { font-size: 12px; font-weight: 750; color: color-mix(in srgb, var(--rc) 80%, var(--text)); background: color-mix(in srgb, var(--rc) 13%, transparent); padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.cp-days { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.cp-day { display: flex; flex-direction: column; gap: 1px; padding: 6px 9px; border-radius: 8px; background: var(--surface-2); min-width: 92px; flex: none; }
+.cp-day b { font-size: 12.5px; }
+.cp-day small { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.cp-day .cp-fest { color: color-mix(in srgb, #d4a017 75%, var(--text)); }
+.cp-why { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.cp-why .good { color: color-mix(in srgb, #30a46c 75%, var(--text)); }
+.cp-why .bad { color: color-mix(in srgb, #e5484d 80%, var(--text)); }
+.cp-why .info { color: var(--text-3); }
+.cp-opt .btn { align-self: flex-start; }
+@media (max-width: 640px) {
+  .cp-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cp-results { max-height: none; overflow: visible; }
+}
+
 /* Meetings */
 .join-chip {
   --pc: var(--accent);

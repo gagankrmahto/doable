@@ -1187,6 +1187,9 @@ function renderList(vm) {
   let html = '';
   if (vm.upNext && vm.upNext.length) html += upNextBanner(vm.upNext);
   if (vm.panchang) html += birthdayStrip(vm.panchang) + panchangStrip(vm.panchang) + sadhanaStrip();
+  if (vm.list && vm.list.space === 'aol') {
+    html += `<div class="pp-bar cp-bar"><span>🗓️ Planning a course? Find the best dates by moon, festivals and your calendar</span><button class="btn ghost sm" data-action="course-planner">Plan a course</button></div>`;
+  }
   if (vm.list && vm.list.space === 'personal') {
     html += `<div class="pp-bar"><span>🎂 ${state.people.length ? `${peopleCount(state.people.length)} with birthdays & anniversaries` : 'Never miss a birthday — add them or import from Google Contacts'}</span><button class="btn ghost sm" data-action="people">${state.people.length ? 'Manage' : 'Add birthdays'}</button></div>`;
   }
@@ -2267,6 +2270,161 @@ function planEvent(id) {
   toast(`Planned in ${list.name}`, { action: { label: 'Open', fn: () => openDetails(task.id) } });
 }
 
+/* ---------- Course planner (Art of Living courses, or any multi-day event) ---------- */
+const ORGANISER_STEPS = [
+  [-28, 'Confirm the teacher and venue'],
+  [-21, 'Open registrations and share the poster'],
+  [-14, 'Invite past participants and friends'],
+  [-7, 'Follow up with everyone who showed interest'],
+  [-2, 'Send joining details and a reminder'],
+  [-1, 'Prepare the hall: mats, sheets, music system, flowers'],
+  [7, 'Invite participants to the weekly follow-up satsang'],
+];
+const shiftDay = (day, n) => ymd(addDays(parseYmd(day), n));
+function plannerForm() {
+  if (!ui.planner) {
+    const p = CoursePlanner.PRESETS[0];
+    ui.planner = { preset: p.id, name: p.name, days: p.days, time: p.time, minutes: p.minutes, startDays: [...p.startDays],
+      from: shiftDay(todayStr(), 21), to: shiftDay(todayStr(), 90), prefs: { moon: true, festivals: true, busy: true, rahu: true }, checklist: true };
+  }
+  return ui.planner;
+}
+// What the planner needs to know about each day: panchang, festivals & AoL days, and your own commitments
+function plannerContext(f) {
+  const until = shiftDay(f.to, f.days);
+  const evs = eventsByDate(f.from, until, ['festivals', 'aol']);
+  const gsets = gcals().map(gcalSetId).filter(layerOn);
+  const gev = gsets.length ? eventsByDate(f.from, until, gsets) : {};
+  const at = (day, hm) => { const d = parseYmd(day); const [h, m] = hm.split(':').map(Number); d.setHours(h, m, 0, 0); return d.getTime(); };
+  return {
+    tithi: d => Panchang.dayInfo(d).tithi,
+    rahu: d => Panchang.dayInfo(d).rahu.map(x => x.getTime()),
+    events: d => evs[d] || [],
+    busy: d => [
+      ...state.tasks.filter(t => !t.done && t.due === d && t.time).map(t => { const s = at(d, t.time); return { t: t.title || 'Untitled', start: s, end: s + (isMeeting(t) ? meetingMinutes(t) : 30) * 60000 }; }),
+      ...(gev[d] || []).map(e => ({ t: e.t, start: e.startMs, end: e.endMs, allDay: e.allDay })),
+    ],
+    clock: ms => clock(new Date(ms)),
+  };
+}
+const PLAN_RATING = { Excellent: '#30a46c', 'Very good': '#12a594', Good: '#0090ff', Possible: '#f5a524' };
+function plannerResults(f) {
+  if (!window.CoursePlanner || !window.Panchang) return '<p class="muted">The planner couldn’t load.</p>';
+  if (!(f.from <= f.to)) return '<p class="muted pad">Pick a start date on or before the end date.</p>';
+  const { options, considered } = CoursePlanner.suggest({ ...f, today: todayStr() }, plannerContext(f));
+  if (!options.length) return `<p class="muted pad">No ${f.startDays.length ? 'matching start days' : 'dates'} in this window. Try more start days or a longer window.</p>`;
+  const evs = eventsByDate(f.from, shiftDay(f.to, f.days), ['festivals']);
+  const dayChip = d => {
+    const t = Panchang.dayInfo(d).tithi;
+    const moon = t.n === 15 ? '🌕 ' : t.n === 30 ? '🌑 ' : '';
+    const fest = (evs[d] || [])[0];
+    return `<span class="cp-day"><b>${esc(parseYmd(d).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric' }))}</b><small>${moon}${esc(t.label)}</small>${fest ? `<small class="cp-fest">🪔 ${esc(fest.t)}</small>` : ''}</span>`;
+  };
+  return `<p class="muted small cp-count">Checked ${plural(considered, 'possible start')} · best ${options.length > 1 ? options.length + ' options' : 'option'}:</p>
+    ${options.map((o, i) => `<article class="cp-opt" style="--rc:${PLAN_RATING[o.rating]}">
+      <header><span class="cp-rank">${i + 1}</span><b>${esc(fmtDate(o.start))}${o.days.length > 1 ? ` – ${esc(fmtDate(o.end))}` : ''}</b><span class="cp-rating">${esc(o.rating)}</span></header>
+      <div class="cp-days">${o.days.map(dayChip).join('')}</div>
+      <ul class="cp-why">${o.reasons.map(r => `<li class="${r.kind}">${r.kind === 'good' ? '✓' : r.kind === 'bad' ? '⚠' : '•'} ${esc(r.text)}</li>`).join('')}</ul>
+      <button class="btn ${i === 0 ? 'primary' : 'ghost'} sm" data-cp="add" data-start="${o.start}">${icon('plus')}Add to calendar</button>
+    </article>`).join('')}`;
+}
+function openCoursePlanner() {
+  const f = plannerForm();
+  const presets = CoursePlanner.PRESETS;
+  const cur = presets.find(p => p.id === f.preset) || presets[0];
+  const wd = [1, 2, 3, 4, 5, 6, 0];
+  const hours = Math.round((f.minutes / 60) * 4) / 4;
+  openModal(`
+    <div class="modal-card wide cp-card">
+      <div class="modal-title-row"><h2>🗓️ Course planner</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <p class="muted small">Finds the best dates for a course: a waxing moon to begin, Purnima during the course, no family festivals, a weekend for attendance, and no clashes with your tasks, meetings or Google Calendar.</p>
+      <div class="cp-presets" role="radiogroup" aria-label="Course">${presets.map(p => `<button class="space-chip ${p.id === f.preset ? 'on' : ''}" data-preset="${p.id}" role="radio" aria-checked="${p.id === f.preset}">${p.emoji} ${esc(p.name)}</button>`).join('')}</div>
+      <p class="cp-note muted small">${esc(cur.note)}${cur.id !== 'custom' ? ' · adjust anything below' : ''}</p>
+      <form class="cp-form" autocomplete="off">
+        ${f.preset === 'custom' ? `<label class="gc-field cp-wide"><span>Name</span><input name="name" value="${esc(f.name === 'Custom' ? '' : f.name)}" placeholder="e.g. Volunteer training" maxlength="60"></label>` : ''}
+        <label class="gc-field"><span>Days</span><input name="days" type="number" min="1" max="14" value="${f.days}"></label>
+        <label class="gc-field"><span>Starts at</span><input name="time" type="time" value="${f.time}"></label>
+        <label class="gc-field"><span>Hours a day</span><input name="hours" type="number" min="0.5" max="16" step="0.5" value="${hours}"></label>
+        <label class="gc-field"><span>Earliest start</span><input name="from" type="date" value="${f.from}"></label>
+        <label class="gc-field"><span>Latest start</span><input name="to" type="date" value="${f.to}"></label>
+        <div class="gc-field cp-wide"><span>Start on</span><div class="cp-wd">${wd.map(d => `<button type="button" class="cp-wd-btn ${f.startDays.includes(d) ? 'on' : ''}" data-wd="${d}" aria-pressed="${f.startDays.includes(d)}">${esc(new Date(2026, 1, 1 + d).toLocaleDateString(LOCALE, { weekday: 'short' }))}</button>`).join('')}<span class="muted small">${f.startDays.length ? '' : 'Any day'}</span></div></div>
+        <div class="gc-field cp-wide"><span>Consider</span><div class="cp-prefs">${[['moon', '🌙 Moon & tithi'], ['festivals', '🪔 Festivals'], ['busy', '📅 My calendar'], ['rahu', '⏳ Rahu Kaal']].map(([k, l]) => `<label class="cp-pref"><input type="checkbox" name="pref-${k}" ${f.prefs[k] !== false ? 'checked' : ''}> ${l}</label>`).join('')}</div></div>
+      </form>
+      <div class="cp-results" aria-live="polite">${plannerResults(f)}</div>
+      <label class="cp-pref cp-check"><input type="checkbox" name="checklist" ${f.checklist ? 'checked' : ''}> Also add an organiser checklist (venue, registrations, invites, reminders, follow-up)</label>
+    </div>`, m => {
+    const results = m.querySelector('.cp-results');
+    let timer = 0;
+    const read = () => {
+      const fd = new FormData(m.querySelector('.cp-form'));
+      f.days = Math.min(14, Math.max(1, parseInt(fd.get('days'), 10) || 1));
+      f.time = String(fd.get('time') || '18:00');
+      f.minutes = Math.round(Math.min(16, Math.max(0.5, parseFloat(fd.get('hours')) || 1)) * 60);
+      f.from = String(fd.get('from') || f.from);
+      f.to = String(fd.get('to') || f.to);
+      if (f.preset === 'custom') f.name = String(fd.get('name') || '').trim() || 'Custom';
+      for (const k of ['moon', 'festivals', 'busy', 'rahu']) f.prefs[k] = fd.get('pref-' + k) === 'on';
+      clearTimeout(timer);
+      timer = setTimeout(() => { results.innerHTML = plannerResults(f); }, 150);
+    };
+    m.querySelector('.cp-form').addEventListener('submit', e => e.preventDefault());
+    m.querySelector('.cp-form').addEventListener('input', read);
+    m.querySelector('.cp-form').addEventListener('change', read);
+    m.querySelector('[name="checklist"]').addEventListener('change', e => { f.checklist = e.target.checked; });
+    m.addEventListener('click', e => {
+      const pr = e.target.closest('[data-preset]');
+      if (pr) {
+        const p = presets.find(x => x.id === pr.dataset.preset);
+        Object.assign(f, { preset: p.id, name: p.name, days: p.days, time: p.time, minutes: p.minutes, startDays: [...p.startDays] });
+        openCoursePlanner();
+        return;
+      }
+      const w = e.target.closest('[data-wd]');
+      if (w) {
+        const d = +w.dataset.wd;
+        f.startDays = f.startDays.includes(d) ? f.startDays.filter(x => x !== d) : [...f.startDays, d];
+        w.classList.toggle('on');
+        w.setAttribute('aria-pressed', f.startDays.includes(d));
+        w.parentElement.querySelector('.muted').textContent = f.startDays.length ? '' : 'Any day';
+        results.innerHTML = plannerResults(f);
+        return;
+      }
+      const add = e.target.closest('[data-cp="add"]');
+      if (add) addCourse(add.dataset.start);
+    });
+  });
+}
+function addCourse(start) {
+  const f = plannerForm();
+  const preset = CoursePlanner.PRESETS.find(p => p.id === f.preset) || {};
+  const opt = CoursePlanner.scoreStart(start, { ...f, today: todayStr() }, plannerContext(f));
+  const list = spaceList('aol') || getList(defaultListId());
+  const name = f.name || preset.name;
+  const emoji = preset.emoji || '✨';
+  const range = opt.days.length > 1 ? `${fmtShort(opt.start)}–${fmtShort(opt.end)}` : fmtShort(opt.start);
+  const why = opt.reasons.filter(r => r.kind === 'good').map(r => `• ${r.text}`).join('\n');
+  const watch = opt.reasons.filter(r => r.kind === 'bad').map(r => `• ${r.text}`).join('\n');
+  const tasks = opt.days.map((d, i) => newTask({
+    title: `${emoji} ${name}${opt.days.length > 1 ? ` · Day ${i + 1} of ${opt.days.length}` : ''}`,
+    listId: list.id, due: d, time: f.time, type: 'meeting', duration: f.minutes, remind: 60, tags: ['course'],
+    notes: i === 0 ? [why && `Why these dates:\n${why}`, watch && `Keep in mind:\n${watch}`].filter(Boolean).join('\n\n') : '',
+  }));
+  if (f.checklist) {
+    const T = todayStr();
+    for (const [offset, title] of ORGANISER_STEPS) {
+      const due = shiftDay(offset < 0 ? opt.start : opt.end, offset);
+      tasks.push(newTask({ title: `${title} · ${name}`, listId: list.id, due: due < T ? T : due, tags: ['course'] }));
+    }
+  }
+  let order = edgeOrder(list.id, null, true);
+  tasks.forEach(t => { t.order = order--; });
+  commit(() => { state.tasks.push(...tasks); ui.flashId = tasks[0].id; });
+  closeModal();
+  toast(`${name} added to ${list.name} · ${range}`, {
+    action: { label: 'Show', fn: () => { const d = parseYmd(opt.start); ui.calMonth = new Date(d.getFullYear(), d.getMonth(), 1); ui.calDay = opt.start; navigate('smart:calendar'); } },
+  });
+}
+
 function calendarFilters() {
   const scope = eventScope();
   const isCalView = ui.view.type === 'smart' && ui.view.id === 'calendar';
@@ -2275,7 +2433,8 @@ function calendarFilters() {
       <button class="space-chip ${cur === 'all' ? 'on' : ''}" data-action="cal-space" data-space="all">All</button>
       ${SPACES.map(s => { const l = spaceList(s.id); return l ? `<button class="space-chip ${cur === s.id ? 'on' : ''}" data-action="cal-space" data-space="${s.id}" style="--c:${l.color}"><i></i>${esc(l.name)}</button>` : ''; }).join('')}
     </div>` : '';
-  const connect = isCalView && !gcals().length ? `<button class="layer-chip gc-connect" data-action="gcal" title="Show your Google Calendar events here">${icon('plus')} Google Calendar</button>` : '';
+  const connect = (isCalView && !gcals().length ? `<button class="layer-chip gc-connect" data-action="gcal" title="Show your Google Calendar events here">${icon('plus')} Google Calendar</button>` : '')
+    + (scope.includes('aol') && window.CoursePlanner ? `<button class="layer-chip gc-connect cp-chip" data-action="course-planner" title="Find the best dates for a course">🗓️ Plan a course</button>` : '');
   const layers = scope.length ? `<div class="cal-layers">${scope.map(id => { const s = setInfo(id); return `<button class="layer-chip ${layerOn(id) ? 'on' : ''}" data-action="cal-layer" data-layer="${id}" style="--ec:${s.color}" aria-pressed="${layerOn(id)}" title="Show ${esc(s.name || id)}">${s.emoji || ''} ${esc(s.short || s.name || id)}</button>`; }).join('')}${connect}</div>` : '';
   const legend = (scope.includes('moon') && layerOn('moon')) || sacredOn()
     ? `<div class="cal-legend">${scope.includes('moon') && layerOn('moon') ? '<span><i class="lg-full"></i>🌕 Purnima</span><span><i class="lg-new"></i>🌑 Amavasya</span>' : ''}${sacredOn() ? '<span>✨ Sacred day</span>' : ''}<span class="muted">Moon days follow sunrise in ${esc(currentLocation().source === 'default' ? currentLocation().region : currentLocation().name)}; local panchangs can differ by a day.</span></div>`
@@ -3269,6 +3428,7 @@ async function handleAction(a, el, id) {
     case 'plan-event': planEvent(el.dataset.ev); break;
     case 'ev-join': { const e = findEvent(el.dataset.ev); if (e && e.link) openLink(e.link); break; }
     case 'gcal': openGcalManager(); break;
+    case 'course-planner': openCoursePlanner(); break;
     case 'pick-location': openLocationPicker(); break;
     case 'people': openPeopleManager(); break;
     case 'wish': {
