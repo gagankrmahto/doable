@@ -4790,8 +4790,8 @@ function openAccount(mode = 'signin') {
         </div>
         <p class="muted small">Changes sync automatically to every device signed in to this account. You can keep working offline — everything uploads when you're back online.</p>
         ${S.user.providers && !S.user.providers.includes('password') ? `<form class="acct-pw" autocomplete="off">
-          <b>Sign in on the Android app</b>
-          <span class="muted small">You signed in with Google, which the Android app can't use. Add a password to this account, then sign in on your phone with ${esc(S.user.email)} and that password.</span>
+          <b>Also sign in with a password</b>
+          <span class="muted small">Add a password to this account as a second way to sign in, e.g. on a device without your Google account: use ${esc(S.user.email)} and this password.</span>
           <div class="row gap"><input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="New password (6+ characters)" aria-label="New password"><button class="btn ghost sm" type="submit">Add password</button></div>
           <p class="form-msg" role="status" aria-live="polite"></p>
         </form>` : ''}

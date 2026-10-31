@@ -2,7 +2,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification,
-  sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider, EmailAuthProvider, linkWithCredential, signOut,
+  sendPasswordResetEmail, signInWithPopup, signInWithCredential, GoogleAuthProvider, EmailAuthProvider, linkWithCredential, signOut,
 } from 'firebase/auth';
 import {
   getFirestore, collection, doc, query, where, orderBy, getDocsFromServer, writeBatch, serverTimestamp, onSnapshot, Timestamp,
@@ -11,6 +11,6 @@ import {
 window.firebaseSdk = {
   initializeApp,
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification,
-  sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider, EmailAuthProvider, linkWithCredential, signOut,
+  sendPasswordResetEmail, signInWithPopup, signInWithCredential, GoogleAuthProvider, EmailAuthProvider, linkWithCredential, signOut,
   getFirestore, collection, doc, query, where, orderBy, getDocsFromServer, writeBatch, serverTimestamp, onSnapshot, Timestamp,
 };

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1018901214072",
+    "project_id": "doable-gagan",
+    "storage_bucket": "doable-gagan.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1018901214072:android:2d7a07522793fbbc738e8d",
+        "android_client_info": {
+          "package_name": "com.gaganmahto.doable"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1018901214072-vl1rdvl92rr49itu5huv00f6rddvttae.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gaganmahto.doable",
+            "certificate_hash": "e2ffffa721607adf86f781a3f54ab88172ce9385"
+          }
+        },
+        {
+          "client_id": "1018901214072-uq0do1s718tid0spl3fdal0h2imq4jbe.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_TbobcQuFXH1dX1LMN9S_985nbiZjyF0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1018901214072-uq0do1s718tid0spl3fdal0h2imq4jbe.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

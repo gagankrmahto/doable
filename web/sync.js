@@ -316,9 +316,18 @@
     fb.sendEmailVerification(cred.user).catch(() => {}); // a verified email lets Google sign-in join this same account later
     return cred;
   });
-  // Google blocks its sign-in page inside app web views, so the Android app uses email + password
-  Sync.canUseGoogle = () => !isNativeApp();
-  Sync.signInWithGoogle = () => attempt(() => fb.signInWithPopup(auth, new fb.GoogleAuthProvider()));
+  // On the website Google opens in a popup. In the Android app Google blocks web sign-in pages, so the
+  // native Firebase Authentication plugin shows the system account picker and hands back a credential.
+  const nativeAuth = () => (isNativeApp() ? global.Capacitor.registerPlugin('FirebaseAuthentication') : null);
+  Sync.canUseGoogle = () => true;
+  Sync.signInWithGoogle = () => attempt(async () => {
+    const plugin = nativeAuth();
+    if (!plugin) return fb.signInWithPopup(auth, new fb.GoogleAuthProvider());
+    const r = await plugin.signInWithGoogle();
+    const idToken = r && r.credential && r.credential.idToken;
+    if (!idToken) throw Object.assign(new Error('Google sign-in was cancelled.'), { code: 'auth/popup-closed-by-user' });
+    return fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(idToken, r.credential.accessToken || null));
+  });
   Sync.resetPassword = email => attempt(() => fb.sendPasswordResetEmail(auth, email, redirectUrl() ? { url: redirectUrl() } : undefined));
   // Lets an account created with Google also sign in with email + password (for the Android app)
   Sync.addPassword = password => attempt(async () => {

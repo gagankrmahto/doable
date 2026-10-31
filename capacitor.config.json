@@ -13,6 +13,12 @@
     "LocalNotifications": {
       "smallIcon": "ic_stat_doable",
       "iconColor": "#7B68EE"
+    },
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": [
+        "google.com"
+      ]
     }
   }
 }
