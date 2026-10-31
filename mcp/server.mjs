@@ -102,6 +102,7 @@ const view = t => ({
   id: t.id, title: t.title, list: listName(t.listId), status: t.status, done: !!t.done,
   ...(t.due && { due: t.due }), ...(t.time && { time: t.time }), ...(t.priority && { priority: PRIO_NAME[t.priority] }),
   ...(t.tags && t.tags.length && { tags: t.tags }), ...(t.starred && { starred: true }), ...(t.parentId && { parent_id: t.parentId }),
+  ...(t.repeat && { repeat: t.repeat.freq === 'monthly' && t.repeat.interval === 3 ? 'quarterly' : t.repeat.freq === 'monthly' && t.repeat.interval === 6 ? 'halfyearly' : t.repeat.interval === 1 ? t.repeat.freq : `every ${t.repeat.interval} ${t.repeat.freq}` }),
   ...(t.notes && { notes: t.notes.slice(0, 300) }), ...(t.type === 'meeting' && { meeting: { minutes: t.duration || 30, link: t.link || null } }),
   ...(TimeLog.logsOf(t).length && { time: { hours: TimeLog.hours(TimeLog.logsOf(t)), ...(TimeLog.running(t) && { running: true }) } }),
 });
@@ -167,7 +168,7 @@ const taskInput = z.object({
   title: z.string().min(1).max(300), list: z.string().optional().describe('List, space or project name; default list if omitted'),
   due: D.optional(), time: HM.optional(), duration_minutes: z.number().int().min(5).max(1440).optional(), link: z.string().url().optional(),
   priority: z.enum(['urgent', 'high', 'normal', 'low']).optional(), notes: z.string().max(4000).optional(), tags: z.array(z.string()).max(10).optional(),
-  starred: z.boolean().optional(), repeat: z.enum(['daily', 'weekdays', 'weekly', 'monthly', 'yearly']).optional(),
+  starred: z.boolean().optional(), repeat: z.enum(['daily', 'weekdays', 'weekly', 'monthly', 'quarterly', 'halfyearly', 'yearly']).optional(),
   remind_minutes_before: z.number().int().min(0).max(10080).optional(), parent_id: z.string().optional().describe('Make it a subtask of this task'),
 });
 server.registerTool('create_tasks', {
@@ -189,7 +190,7 @@ server.registerTool('create_tasks', {
       title: x.title.trim(), listId: l.id, parentId: parent ? parent.id : null, due: x.due || (x.repeat ? todayStr() : null), time: x.time || null,
       priority: x.priority ? PRIO[x.priority] : 0, notes: [x.notes, x.link && !meeting ? x.link : ''].filter(Boolean).join('\n'),
       tags: (x.tags || []).map(g => g.replace(/^#/, '').toLowerCase()).filter(Boolean), starred: !!x.starred,
-      repeat: x.repeat ? { freq: x.repeat, interval: 1 } : null, remind: x.remind_minutes_before != null && (x.due || x.repeat) ? x.remind_minutes_before : null,
+      repeat: x.repeat ? { freq: x.repeat === 'quarterly' || x.repeat === 'halfyearly' ? 'monthly' : x.repeat, interval: x.repeat === 'quarterly' ? 3 : x.repeat === 'halfyearly' ? 6 : 1 } : null, remind: x.remind_minutes_before != null && (x.due || x.repeat) ? x.remind_minutes_before : null,
       type: meeting ? 'meeting' : 'task', link: meeting ? x.link : null, duration: meeting ? x.duration_minutes || 30 : null, order,
     }));
   }

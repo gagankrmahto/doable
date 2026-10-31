@@ -86,6 +86,8 @@
         r.repeat = { freq: 'weekly', interval: 1 };
         setDue(nextWeekday(today, dayIndex(m[1] || m[2]), true));
       })
+      || take(/\b(?:every\s+)?(?:quarterly|each\s+quarter|every\s+quarter|every\s+3\s+months|every\s+three\s+months)\b/i, () => { r.repeat = { freq: 'monthly', interval: 3 }; })
+      || take(/\b(?:every\s+)?(?:half[\s-]?yearly|half[\s-]?year|semi[\s-]?annually|semi[\s-]?annual|twice\s+a\s+year|every\s+6\s+months|every\s+six\s+months)\b/i, () => { r.repeat = { freq: 'monthly', interval: 6 }; })
       || take(/\b(daily|weekly|monthly|yearly|annually)\s*$/i, m => {
         const f = m[1].toLowerCase();
         r.repeat = { freq: f === 'annually' ? 'yearly' : f, interval: 1 };

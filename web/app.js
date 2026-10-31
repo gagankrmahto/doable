@@ -129,6 +129,7 @@ const MODES = { list: { label: 'List', icon: 'list' }, board: { label: 'Board', 
 const QA_EXAMPLES = [
   'Call mom tomorrow 6pm #family',
   'Pay rent every month !1',
+  'File GST return quarterly on the 20th',
   'Standup every weekday 9:30am',
   'Dentist next friday at 3',
   'Buy milk tonight *',
@@ -519,9 +520,24 @@ function dueClass(t) {
 function repeatLabel(r) {
   if (!r) return '';
   if (r.freq === 'weekdays') return 'Every weekday';
+  if (r.freq === 'monthly' && r.interval === 3) return 'Quarterly';
+  if (r.freq === 'monthly' && r.interval === 6) return 'Every 6 months';
   const unit = { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[r.freq];
   if (r.interval === 1) return { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' }[r.freq];
   return `Every ${r.interval} ${unit}s`;
+}
+// Named repeats the UI and Claude use; stored as freq + interval
+const REPEAT_PRESETS = { daily: ['daily', 1], weekdays: ['weekdays', 1], weekly: ['weekly', 1], monthly: ['monthly', 1], quarterly: ['monthly', 3], halfyearly: ['monthly', 6], yearly: ['yearly', 1] };
+const repeatFrom = name => (REPEAT_PRESETS[name] ? { freq: REPEAT_PRESETS[name][0], interval: REPEAT_PRESETS[name][1] } : null);
+const repeatKey = r => (!r ? 'none' : r.freq === 'monthly' && r.interval === 3 ? 'quarterly' : r.freq === 'monthly' && r.interval === 6 ? 'halfyearly' : r.freq);
+// Steps months from the task's original day-of-month, so a task due on the 31st lands on month ends,
+// and one due on the 15th stays on the 15th even after passing a short month.
+function addMonthsKeepEnd(x, n, originalDue) {
+  const wanted = originalDue ? parseYmd(originalDue).getDate() : x.getDate();
+  const y = new Date(x.getFullYear(), x.getMonth() + n, 1);
+  const last = new Date(y.getFullYear(), y.getMonth() + 1, 0).getDate();
+  y.setDate(Math.min(wanted, last));
+  return y;
 }
 function nextDue(t) {
   const T = startOfDay(new Date());
@@ -532,8 +548,8 @@ function nextDue(t) {
       case 'daily': return addDays(x, n);
       case 'weekdays': { let y = addDays(x, 1); while (y.getDay() === 0 || y.getDay() === 6) y = addDays(y, 1); return y; }
       case 'weekly': return addDays(x, 7 * n);
-      case 'monthly': return addMonths(x, n);
-      case 'yearly': return addMonths(x, 12 * n);
+      case 'monthly': return addMonthsKeepEnd(x, n, t.due);
+      case 'yearly': return addMonthsKeepEnd(x, 12 * n, t.due);
       default: return addDays(x, 1);
     }
   };
@@ -3002,7 +3018,7 @@ function renderDetails() {
   const doneKids = kids.filter(k => k.done).length;
   const parent = t.parentId && getTask(t.parentId);
   const list = getList(t.listId);
-  const repeatUnit = t.repeat && { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[t.repeat.freq];
+  const repeatUnit = t.repeat && !['quarterly', 'halfyearly'].includes(repeatKey(t.repeat)) && { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[t.repeat.freq];
   const T = todayStr();
   const p = prioOf(t.priority);
   const st = statusOf(t.status);
@@ -3071,8 +3087,8 @@ function renderDetails() {
             <label for="d-repeat">${icon('repeat')}Repeat</label>
             <div class="prop-val row wrap">
               <select id="d-repeat" data-field="repeatFreq">
-                ${[['none', 'Does not repeat'], ['daily', 'Daily'], ['weekdays', 'Every weekday'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]
-                  .map(([v, l]) => `<option value="${v}" ${(t.repeat ? t.repeat.freq : 'none') === v ? 'selected' : ''}>${l}</option>`).join('')}
+                ${[['none', 'Does not repeat'], ['daily', 'Daily'], ['weekdays', 'Every weekday'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['halfyearly', 'Every 6 months'], ['yearly', 'Yearly']]
+                  .map(([v, l]) => `<option value="${v}" ${repeatKey(t.repeat) === v ? 'selected' : ''}>${l}</option>`).join('')}
               </select>
               ${repeatUnit ? `<span class="muted">every</span><input class="num" type="number" min="1" max="99" data-field="repeatInterval" value="${t.repeat.interval}" aria-label="Repeat interval"><span class="muted">${repeatUnit}${t.repeat.interval === 1 ? '' : 's'}</span>` : ''}
             </div>
@@ -3234,7 +3250,7 @@ function bindDetails() {
       case 'due': commit(() => { t.due = v || null; if (!t.due) { t.time = null; t.remind = null; t.repeat = null; } t.notifiedFor = null; }); break;
       case 'time': commit(() => { t.time = v || null; if (t.time && !t.due) t.due = todayStr(); t.notifiedFor = null; }); break;
       case 'repeatFreq': commit(() => {
-        t.repeat = v === 'none' ? null : { freq: v, interval: (t.repeat && t.repeat.interval) || 1 };
+        t.repeat = v === 'none' ? null : REPEAT_PRESETS[v] && REPEAT_PRESETS[v][1] !== 1 ? repeatFrom(v) : { freq: v, interval: 1 };
         if (t.repeat && !t.due) t.due = todayStr();
       }); break;
       case 'repeatInterval': commit(() => { if (t.repeat) t.repeat.interval = clamp(parseInt(v, 10) || 1, 1, 99); }); break;
@@ -3685,7 +3701,7 @@ function openShortcuts() {
   ];
   const syntax = [
     ['tomorrow, fri, next week, in 3 days, dec 25', 'Due date'], ['6pm, 9:30, at 5, tonight', 'Time'],
-    ['every day, every weekday, every 2 weeks, monthly', 'Repeat'], ['!1 urgent · !2 high · !3 normal · !4 low', 'Priority'],
+    ['every day, every weekday, every 2 weeks, monthly, quarterly, half-yearly', 'Repeat'], ['!1 urgent · !2 high · !3 normal · !4 low', 'Priority'],
     ['#errands', 'Tag'], ['@work', 'List'], ['*', 'Star'], ['paste a Meet / Zoom / Teams link', 'Meeting + Join button'],
   ];
   openModal(`
@@ -4640,7 +4656,7 @@ const AI_TOOLS = [
               notes: { type: 'string', maxLength: 4000 },
               tags: { type: 'array', items: { type: 'string' }, maxItems: 10 },
               starred: { type: 'boolean' },
-              repeat: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] },
+              repeat: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'monthly', 'quarterly', 'halfyearly', 'yearly'] },
               remind_minutes_before: { type: 'integer', minimum: 0, maximum: 10080, description: 'Reminder before the due time (needs a due date)' },
               parent_id: { type: 'string', description: 'Make it a subtask of this task id' },
             },
@@ -4666,7 +4682,7 @@ const AI_TOOLS = [
           due: x.due || (x.repeat ? todayStr() : null), time: x.time || null,
           priority: x.priority ? PRIO[x.priority] : 0, notes: [x.notes, link && !meeting ? link : ''].filter(Boolean).join('\n'),
           tags: (x.tags || []).map(g => g.replace(/^#/, '').toLowerCase()).filter(Boolean), starred: !!x.starred,
-          repeat: x.repeat ? { freq: x.repeat, interval: 1 } : null,
+          repeat: x.repeat ? repeatFrom(x.repeat) : null,
           remind: x.remind_minutes_before != null && (x.due || x.repeat) ? x.remind_minutes_before : null,
           type: meeting ? 'meeting' : 'task', link: meeting ? link : null, duration: meeting ? x.duration_minutes || 30 : null,
           order: edgeOrder(list.id, parent ? parent.id : null, !parent),

@@ -23,7 +23,7 @@ Then open http://localhost:4321. Without a Firebase project in `web/config.js`, 
 | **Group by** status, priority, due date, or list, with inline **+ Add Task** in every group | | ✅ |
 | Large task window with status button, properties, description, and a subtask progress bar | | ✅ |
 | Bookmarkable views (e.g. `#list/Work/board`) | | ✅ |
-| Repeating tasks | ✅ | ✅ (daily, weekdays, every N days/weeks/months/years) |
+| Repeating tasks | ✅ | ✅ (daily, weekdays, weekly, monthly, quarterly, half-yearly, yearly, or every N days/weeks/months/years; month-end dates stay on month ends) |
 | **Natural-language quick add** with a live preview | | ✅ |
 | **Today** (includes overdue), **Upcoming** (7-day planner), **Starred**, **All**, **Completed** views | partial | ✅ |
 | **Calendar view** with drag-to-reschedule | | ✅ |
