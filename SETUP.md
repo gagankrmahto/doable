@@ -113,6 +113,10 @@ It uses your own Anthropic API key, so usage is billed to your Anthropic account
 
 The key is stored only on that device. It isn't synced to your other devices or sent anywhere except Anthropic, so paste it once on each device where you want the assistant. Your messages, and the task details Claude looks up to answer, are sent to Anthropic.
 
+## Sharing a space or project with a passcode
+
+On a project page or the Freelance hub, click **Share**, choose a passcode and what to include (notes, money). Doable encrypts a read-only snapshot on your device with that passcode and publishes it to `shared/<random id>`; the link is `https://doable-gagan.web.app/share.html#<id>`. Give people the link and tell them the passcode separately. Changes republish within seconds from the device that set the passcode. **Stop sharing** deletes the published copy. Firestore rules let anyone read the ciphertext and only you write it; without the passcode it is noise.
+
 ## How sync works
 
 - **Offline-first:** every device saves to itself first, so the app is instant and works without internet. Changes upload when you're back online.

@@ -33,6 +33,7 @@ Then open http://localhost:4321. Without a Firebase project in `web/config.js`, 
 | **NGO planning days** (Daan Utsav, Children's Day, Volunteer Day, GivingTuesday, key filing dates…) | | ✅ |
 | One tap turns any festival or event into a planned task | | ✅ |
 | **Freelance space**: client projects and your own software as projects with status (lead → proposal → active → delivered → paid), milestones with a progress bar, deadline, price and payments, and alerts on Today for overdue, stale or unpaid work | | ✅ |
+| **Share with a passcode**: publish a read-only copy of a space or project at a link; it is encrypted on your device with the passcode (AES-256-GCM), so the link alone shows nothing; updates live; stop any time | | ✅ |
 | **MCP server** (`mcp/`): Claude Code or the Claude desktop app can read and update your tasks, projects and habits directly, with no manual copying | | ✅ |
 | **Ask Claude**: an assistant (Claude Opus 5.5) that reads your tasks, calendar, panchang and habits and can add, reschedule or complete things for you, all undoable; uses your own Anthropic API key, kept on the device | | ✅ |
 | **Course planner**: suggests the best dates for a course (moon & tithi, festivals, weekends, Rahu Kaal, clashes with your calendar) and adds the sessions plus an organiser checklist | | ✅ |

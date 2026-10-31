@@ -335,6 +335,12 @@
     const u = auth.currentUser;
     Sync.user = { id: u.uid, email: u.email, providers: u.providerData.map(p => p.providerId) };
   });
+  // Passcode-shared snapshots live at shared/{id}: anyone may read the ciphertext, only the owner writes it
+  Sync.publishShare = async (id, sealed) => {
+    if (!auth || !auth.currentUser) throw new Error('Sign in to share');
+    await fb.setDoc(fb.doc(db, 'shared', id), { owner: auth.currentUser.uid, ...sealed, updated_at: fb.serverTimestamp() });
+  };
+  Sync.removeShare = async id => { if (auth && auth.currentUser) await fb.deleteDoc(fb.doc(db, 'shared', id)); };
   // Signed-in user's ID token, for Doable's own server functions (the calendar feed proxy)
   Sync.accessToken = async () => (auth && auth.currentUser ? auth.currentUser.getIdToken() : null);
   Sync.signOut = async () => {

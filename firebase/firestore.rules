@@ -12,5 +12,19 @@ service cloud.firestore {
         && (request.resource.data.json == null || (request.resource.data.json is string && request.resource.data.json.size() < 500000))
         && request.resource.data.updated_at == request.time;
     }
+    // Passcode-shared spaces: an encrypted snapshot anyone with the link may fetch; only its owner can
+    // publish or remove it, and the owner is pinned at creation. Without the passcode the blob is noise.
+    match /shared/{id} {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.owner == request.auth.uid
+        && request.resource.data.keys().hasOnly(['owner', 'blob', 'salt', 'iv', 'v', 'updated_at'])
+        && request.resource.data.blob is string && request.resource.data.blob.size() < 900000
+        && request.resource.data.updated_at == request.time;
+      allow update: if request.auth != null && resource.data.owner == request.auth.uid && request.resource.data.owner == resource.data.owner
+        && request.resource.data.keys().hasOnly(['owner', 'blob', 'salt', 'iv', 'v', 'updated_at'])
+        && request.resource.data.blob is string && request.resource.data.blob.size() < 900000
+        && request.resource.data.updated_at == request.time;
+      allow delete: if request.auth != null && resource.data.owner == request.auth.uid;
+    }
   }
 }

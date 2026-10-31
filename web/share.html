@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <title>Shared · Doable</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #f6f7fb; --surface: #fff; --surface-2: #f1f2f7; --text: #15171f; --text-2: #5b6170; --text-3: #8a90a0; --border: #e3e5ec; --line: #eceef3; --accent: #7b68ee; --ok: #1db67f; --danger: #e5484d; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f1117; --surface: #181b24; --surface-2: #20242f; --text: #eef0f5; --text-2: #aab0bf; --text-3: #767c8c; --border: #2a2f3b; --line: #232833; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 28px 16px 60px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; }
+    .gate { max-width: 380px; margin: 10vh auto 0; text-align: center; display: flex; flex-direction: column; gap: 12px; }
+    .logo { width: 52px; height: 52px; border-radius: 15px; margin: 0 auto; display: grid; place-items: center; background: linear-gradient(135deg, #8e7cf6, #c06ad6); }
+    .logo svg { width: 26px; height: 26px; }
+    h1 { margin: 0; font-size: 22px; }
+    .muted { color: var(--text-2); font-size: 13.5px; margin: 0; }
+    input[type=password] { width: 100%; height: 42px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 15px; outline: none; }
+    input[type=password]:focus { border-color: var(--accent); }
+    button { font: inherit; font-weight: 700; height: 42px; padding: 0 18px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+    .err { color: var(--danger); font-size: 13px; min-height: 18px; margin: 0; }
+    header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .av { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 18px; flex: none; }
+    .title { flex: 1; min-width: 0; }
+    .title h1 { font-size: 20px; }
+    .title span { font-size: 12.5px; color: var(--text-3); }
+    .pill { font-size: 11px; font-weight: 750; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 14px; }
+    .proj { border-left: 4px solid var(--c, #8e4ec6); }
+    .proj h2 { margin: 0 0 2px; font-size: 16px; }
+    .proj .sub { font-size: 12.5px; color: var(--text-3); margin: 0 0 10px; }
+    .bar { height: 7px; border-radius: 4px; background: var(--surface-2); overflow: hidden; margin: 8px 0; }
+    .bar span { display: block; height: 100%; border-radius: 4px; background: var(--c, #8e4ec6); }
+    .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--text-2); font-weight: 600; margin: 6px 0 10px; }
+    .facts a { color: var(--accent); text-decoration: none; }
+    ul.tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+    ul.tasks li { display: flex; align-items: flex-start; gap: 8px; font-size: 13.5px; }
+    ul.tasks li.done { color: var(--text-3); text-decoration: line-through; }
+    ul.tasks li .tick { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--border); flex: none; margin-top: 2px; display: grid; place-items: center; font-size: 10px; }
+    ul.tasks li.done .tick { background: var(--ok); border-color: var(--ok); color: #fff; }
+    ul.tasks li small { color: var(--text-3); font-weight: 600; margin-left: 4px; }
+    ul.tasks ul { margin: 4px 0 0 24px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+    ul.tasks ul li { font-size: 12.5px; }
+    .notes { white-space: pre-wrap; font-size: 13px; color: var(--text-2); margin: 8px 0 0; }
+    footer { margin-top: 28px; text-align: center; font-size: 12px; color: var(--text-3); }
+    footer a { color: inherit; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="gate" class="gate card">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <h1>Shared from Doable</h1>
+      <p class="muted" id="gateMsg">Enter the passcode you were given to view this page.</p>
+      <form id="form" autocomplete="off">
+        <input type="password" id="pass" placeholder="Passcode" aria-label="Passcode" autofocus>
+        <p class="err" id="err"></p>
+        <button type="submit" id="go">Open</button>
+      </form>
+      <p class="muted">This copy is read-only and was encrypted by its owner. Nothing is sent anywhere when you type the passcode.</p>
+    </div>
+    <div id="view" class="hidden"></div>
+    <footer>Made with <a href="https://github.com/gagankrmahto/doable" rel="noopener">Doable</a> · read-only view</footer>
+  </div>
+  <script src="config.js"></script>
+  <script src="sharing.js"></script>
+  <script src="vendor/firebase.js"></script>
+  <script>
+  (() => {
+    const $ = s => document.querySelector(s);
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const id = location.hash.replace(/^#/, '').trim();
+    const fb = window.firebaseSdk;
+    const cfg = window.DOABLE_CONFIG || {};
+    let sealed = null;
+    const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: new Date(d + 'T12:00:00').getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined });
+    const money = n => '₹' + Number(n).toLocaleString('en-IN');
+    const initial = s => (s || '?').trim()[0].toUpperCase();
+    async function load() {
+      // Local development only: a sealed blob kept in sessionStorage stands in for Firestore
+      if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && sessionStorage.getItem('doable-test-sealed')) { sealed = JSON.parse(sessionStorage.getItem('doable-test-sealed')); return; }
+      if (!id) { $('#gateMsg').textContent = 'This link is missing its share id.'; $('#form').classList.add('hidden'); return; }
+      if (!fb || !cfg.firebase) { $('#gateMsg').textContent = 'Sharing is not set up on this site.'; $('#form').classList.add('hidden'); return; }
+      try {
+        const app = fb.initializeApp(cfg.firebase);
+        const snap = await fb.getDoc(fb.doc(fb.getFirestore(app), 'shared', id));
+        if (!snap.exists()) { $('#gateMsg').textContent = 'This share has been switched off by its owner.'; $('#form').classList.add('hidden'); return; }
+        sealed = snap.data();
+      } catch (e) { $('#gateMsg').textContent = 'Could not load the share. Check your connection and reload.'; }
+    }
+    const task = t => `<li class="${t.done ? 'done' : ''}"><span class="tick">${t.done ? '✓' : ''}</span><span>${esc(t.title)}${t.due ? `<small>${esc(fmtDate(t.due))}${t.time ? ' ' + esc(t.time) : ''}</small>` : ''}${t.priority && t.priority !== 'Normal' ? `<small>${esc(t.priority)}</small>` : ''}${t.notes ? `<p class="notes">${esc(t.notes)}</p>` : ''}${t.subtasks && t.subtasks.length ? `<ul>${t.subtasks.map(task).join('')}</ul>` : ''}</span></li>`;
+    const listBlock = (l, isProject) => `<section class="card ${isProject ? 'proj' : ''}" style="--c:${esc(l.color)}">
+      ${isProject ? `<h2>${esc(l.name)}</h2><p class="sub">${[l.client, l.status].filter(Boolean).map(esc).join(' · ')}</p>
+      <div class="bar" title="${l.progress.pct}%"><span style="width:${l.progress.pct}%"></span></div>
+      <div class="facts"><span>${l.progress.done}/${l.progress.milestones} milestones · ${l.progress.pct}%</span>${l.due ? `<span>Due ${esc(fmtDate(l.due))}</span>` : ''}${l.price ? `<span>${money(l.paid)} of ${money(l.price)} received</span>` : ''}${l.stack ? `<span>${esc(l.stack)}</span>` : ''}${l.link ? `<a href="${esc(l.link)}" rel="noopener" target="_blank">Site ↗</a>` : ''}${l.repo ? `<a href="${esc(l.repo)}" rel="noopener" target="_blank">Code ↗</a>` : ''}</div>
+      ${l.notes ? `<p class="notes">${esc(l.notes)}</p>` : ''}` : ''}
+      ${l.tasks.length ? `<ul class="tasks">${l.tasks.map(task).join('')}</ul>` : `<p class="muted">${isProject ? 'No milestones yet.' : 'No tasks here.'}</p>`}
+    </section>`;
+    function render(d) {
+      const when = new Date(d.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      $('#view').innerHTML = `<header class="top"><span class="av" style="background:${esc(d.color)}">${esc(initial(d.title))}</span><div class="title"><h1>${esc(d.title)}</h1><span>Updated ${esc(when)}</span></div><span class="pill">Read-only</span></header>
+        ${d.kind === 'project' ? listBlock(d.main, true) : `${d.projects.length ? `<div class="grid">${d.projects.map(p => listBlock(p, true)).join('')}</div>` : ''}${d.main.tasks.length ? `<h2 style="font-size:16px;margin:18px 0 8px">Tasks</h2>${listBlock(d.main, false)}` : ''}`}`;
+      document.title = `${d.title} · Shared from Doable`;
+      $('#gate').classList.add('hidden'); $('#view').classList.remove('hidden');
+    }
+    $('#form').addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!sealed) { $('#err').textContent = 'Still loading, try again in a moment.'; return; }
+      $('#go').disabled = true; $('#err').textContent = '';
+      try { render(await Sharing.open(sealed, $('#pass').value)); sessionStorage.setItem('doable-share:' + id, $('#pass').value); }
+      catch { $('#err').textContent = 'That passcode doesn’t open this share.'; }
+      $('#go').disabled = false;
+    });
+    load().then(async () => {
+      const saved = sessionStorage.getItem('doable-share:' + id);
+      if (saved && sealed) { try { render(await Sharing.open(sealed, saved)); } catch { /* changed passcode */ } }
+    });
+  })();
+  </script>
+</body>
+</html>

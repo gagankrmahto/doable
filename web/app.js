@@ -228,6 +228,7 @@ const PROJECT_FIELDS = ['client', 'contact', 'status', 'due', 'price', 'paid', '
 const listFrom = l => {
   const out = { id: String(l.id), name: String(l.name || 'Untitled'), color: l.color || LIST_COLORS[0] };
   if (SPACES.some(s => s.id === l.space)) out.space = l.space;
+  if (l.share && l.share.id) out.share = { id: String(l.share.id), on: !!l.share.on, notes: !!l.share.notes, money: !!l.share.money };
   if (l.project && SPACES.some(s => s.id === l.project && s.projects)) {
     out.project = l.project;
     for (const k of PROJECT_FIELDS) if (l[k] !== undefined && l[k] !== null && l[k] !== '') out[k] = l[k];
@@ -387,6 +388,7 @@ function save() {
 }
 function afterSave() {
   if (window.DoableSync) DoableSync.changed();
+  scheduleRepublish();
   scheduleNativeReminders();
   updateWidget();
 }
@@ -2509,7 +2511,10 @@ function projectHub(spaceId) {
   return `<section class="pj-hub">
     <header class="pj-hub-head">
       <div><h2>Projects</h2><span class="muted small">${all.length ? `${plural(t.open, 'open project')} · ${Freelance.money(t.due)} to collect · ${Freelance.money(t.paid)} received` : 'Client work, software you maintain, anything with milestones'}</span></div>
-      <button class="btn primary sm" data-action="new-project" data-space="${spaceId}">${icon('plus')}<span>Project</span></button>
+      <div class="row gap">
+        <button class="btn ghost sm ${(spaceList(spaceId).share || {}).on ? 'sharing' : ''}" data-action="share" data-list="${spaceList(spaceId).id}">${icon('link')}<span>${(spaceList(spaceId).share || {}).on ? 'Shared' : 'Share'}</span></button>
+        <button class="btn primary sm" data-action="new-project" data-space="${spaceId}">${icon('plus')}<span>Project</span></button>
+      </div>
     </header>
     ${open.length ? `<div class="pj-grid">${open.map(projectCard).join('')}</div>` : `<div class="pj-empty"><p>No projects yet. Add your first client project or a piece of software you look after; each gets its own milestones, progress bar and money tracking.</p></div>`}
     ${closed.length ? `<details class="pj-closed"><summary>${plural(closed.length, 'closed project')}</summary><div class="pj-grid">${closed.map(projectCard).join('')}</div></details>` : ''}
@@ -2531,6 +2536,7 @@ function projectHeader(p) {
       <div class="seg pj-seg" role="radiogroup" aria-label="Status">${Freelance.STATUSES.map(x => `<button class="${x.v === p.status ? 'on' : ''}" data-action="project-status" data-list="${p.id}" data-status="${x.v}" style="--sc:${x.color}" title="${esc(x.hint)}">${esc(x.label)}</button>`).join('')}</div>
       <span class="spacer"></span>
       ${links}
+      <button class="btn ghost sm ${p.share && p.share.on ? 'sharing' : ''}" data-action="share" data-list="${p.id}">${icon('link')}${p.share && p.share.on ? 'Shared' : 'Share'}</button>
       <button class="btn ghost sm" data-action="edit-list" data-list="${p.id}">${icon('edit')}Edit</button>
     </div>
     <div class="pj-bar lg" title="${pr.pct}% of tasks done"><span style="width:${pr.pct}%"></span></div>
@@ -2541,6 +2547,116 @@ function projectHeader(p) {
 function projectAlertStrip(alerts) {
   return `<section class="pj-alerts">${alerts.slice(0, 4).map(a => `<button class="pj-alert l${a.level}" data-nav="list:${a.project.id}">${avatar(a.project.name, a.project.color, 'xxs')}<b>${esc(a.project.name)}</b><span>${esc(a.text)}</span></button>`).join('')}</section>`;
 }
+/* ---------- Passcode sharing: read-only, encrypted with the passcode on this device ---------- */
+const SHARE_KEYS = 'doable:share-keys'; // { shareId: passcode } — stays on this device, never synced
+const shareKeys = () => { try { return JSON.parse(localStorage.getItem(SHARE_KEYS)) || {}; } catch { return {}; } };
+const setShareKey = (id, pass) => { const k = shareKeys(); if (pass) k[id] = pass; else delete k[id]; try { localStorage.setItem(SHARE_KEYS, JSON.stringify(k)); } catch { /* ignore */ } };
+const shareUrl = id => `${(window.DOABLE_CONFIG || {}).siteUrl || location.origin + location.pathname.replace(/[^/]*$/, '')}share.html#${id}`.replace(/([^:])\/\/share/, '$1/share');
+const sharedLists = () => state.lists.filter(l => l.share && l.share.on && l.share.id);
+// What a visitor sees: titles, status, dates and progress; notes and money only when ticked
+function shareSnapshot(l) {
+  const opts = l.share || {};
+  const T = todayStr();
+  const taskOut = t => ({ title: t.title, done: !!t.done, status: t.status, ...(t.due && { due: t.due }), ...(t.time && { time: t.time }), ...(t.priority && { priority: prioOf(t.priority).label }), ...(opts.notes && t.notes && { notes: t.notes.slice(0, 2000) }) });
+  const listOut = x => {
+    const ts = state.tasks.filter(t => t.listId === x.id);
+    const top = ts.filter(t => !t.parentId).sort((a, b) => a.done - b.done || (a.due || '9999').localeCompare(b.due || '9999') || a.order - b.order);
+    const o = { name: x.name, color: x.color, tasks: top.map(t => ({ ...taskOut(t), subtasks: ts.filter(k => k.parentId === t.id).sort((a, b) => a.order - b.order).map(taskOut) })) };
+    if (isProject(x)) {
+      Object.assign(o, { status: Freelance.statusOf(x.status).label, ...(x.client && { client: x.client }), ...(x.due && { due: x.due }), ...(x.stack && { stack: x.stack }), ...(x.link && { link: x.link }), ...(x.repo && { repo: x.repo }), progress: Freelance.progress(ts), ...(opts.notes && x.notes && { notes: x.notes }), ...(opts.money && x.price && { price: x.price, paid: x.paid || 0 }) });
+    }
+    return o;
+  };
+  const projects = l.space ? projectsOf(l.space) : [];
+  return { v: 1, title: l.name, color: l.color, kind: l.space ? 'space' : 'project', generated: T, updatedAt: Date.now(), main: listOut(l), projects: projects.map(listOut) };
+}
+const shareHash = snap => { const { updatedAt: _u, ...rest } = snap; return JSON.stringify(rest); };
+const lastPublished = {};
+let republishTimer = 0;
+function scheduleRepublish() {
+  if (!window.Sharing || !window.DoableSync || !DoableSync.user) return;
+  clearTimeout(republishTimer);
+  republishTimer = setTimeout(async () => {
+    for (const l of sharedLists()) {
+      const pass = shareKeys()[l.share.id];
+      if (!pass) continue; // the passcode lives on another device; that device republishes
+      const snap = shareSnapshot(l);
+      const h = shareHash(snap);
+      if (lastPublished[l.share.id] === h) continue;
+      try { await DoableSync.publishShare(l.share.id, await Sharing.seal(snap, pass)); lastPublished[l.share.id] = h; }
+      catch (e) { console.warn('Could not republish share', e); }
+    }
+  }, 1500);
+}
+async function startShare(l, pass, opts) {
+  const id = (l.share && l.share.id) || Sharing.newShareId();
+  setShareKey(id, pass);
+  commit(() => { l.share = { id, on: true, notes: !!opts.notes, money: !!opts.money }; });
+  delete lastPublished[id];
+  await DoableSync.publishShare(id, await Sharing.seal(shareSnapshot(l), pass));
+  lastPublished[id] = shareHash(shareSnapshot(l));
+  return id;
+}
+async function stopShare(l) {
+  const id = l.share && l.share.id;
+  commit(() => { l.share = { ...(l.share || {}), on: false }; });
+  if (id) { setShareKey(id, null); delete lastPublished[id]; await DoableSync.removeShare(id).catch(() => {}); }
+}
+function openShareDialog(listId) {
+  const l = getList(listId);
+  if (!l) return;
+  const S = window.DoableSync;
+  if (!S || !S.user) { toast('Sign in to Cloud sync first — sharing publishes through your account'); return; }
+  const on = !!(l.share && l.share.on);
+  const haveKey = on && !!shareKeys()[l.share.id];
+  const what = l.space ? 'this space and all its projects' : 'this project and its milestones';
+  openModal(`
+    <form class="modal-card share-card" data-share="${l.id}">
+      <div class="modal-title-row"><h2>${icon('link')} Share ${esc(l.name)}</h2><button type="button" class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      ${on ? `
+      <div class="share-live">
+        <b>Sharing is on</b>
+        <span class="muted small">Anyone with the link <em>and</em> the passcode can see a read-only copy of ${what}. It updates within seconds of your changes${haveKey ? '' : ' (the passcode was set on another device, which does the updating)'}.</span>
+        <div class="share-link"><input readonly value="${esc(shareUrl(l.share.id))}" aria-label="Share link"><button type="button" class="btn primary sm" data-s="copy">Copy link</button></div>
+        <span class="muted small">Tell people the passcode in person or by phone, not in the same message as the link.</span>
+      </div>` : `
+      <p class="muted small">Publishes a read-only copy of ${what}: names, status, dates and progress. Everything is encrypted on this device with the passcode before it leaves; without the passcode the link shows nothing. Client contacts never leave.</p>`}
+      <label class="lbl">${on ? 'New passcode (optional, replaces the old one)' : 'Passcode'}<input name="pass" type="password" autocomplete="off" minlength="6" placeholder="6+ characters, easy to say aloud" ${on ? '' : 'required autofocus'}></label>
+      <label class="check-row"><input type="checkbox" name="notes" ${l.share && l.share.notes ? 'checked' : ''}> Include notes</label>
+      ${l.space || isProject(l) ? `<label class="check-row"><input type="checkbox" name="money" ${l.share && l.share.money ? 'checked' : ''}> Include price and payments</label>` : ''}
+      <p class="form-msg" role="status" aria-live="polite"></p>
+      <div class="modal-actions">
+        ${on ? '<button type="button" class="btn ghost danger-text" data-s="stop">Stop sharing</button>' : ''}
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-m="cancel">Cancel</button>
+        <button type="submit" class="btn primary">${on ? 'Update' : 'Start sharing'}</button>
+      </div>
+    </form>`, m => {
+    const form = m.querySelector('form');
+    const msg = m.querySelector('.form-msg');
+    const say = (t, k = 'err') => { msg.textContent = t; msg.className = `form-msg ${k}`; };
+    m.addEventListener('click', async e => {
+      const act = e.target.closest('[data-s]')?.dataset.s;
+      if (act === 'copy') { try { await navigator.clipboard.writeText(shareUrl(l.share.id)); toast('Link copied'); } catch { m.querySelector('.share-link input').select(); } }
+      if (act === 'stop') { await stopShare(l); closeModal(); toast(`Stopped sharing ${l.name}`); }
+    });
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const pass = form.pass.value;
+      const opts = { notes: form.notes.checked, money: form.money ? form.money.checked : false };
+      if (!on && pass.length < 6) { say('Choose a passcode of at least 6 characters.'); return; }
+      if (on && !pass) {
+        if (!haveKey) { say('To change what is shared from this device, enter the passcode again.'); return; }
+        say('Updating…', 'info');
+        try { await startShare(l, shareKeys()[l.share.id], opts); openShareDialog(listId); toast('Share updated'); } catch (err) { say(err.message || 'Could not update'); }
+        return;
+      }
+      say(on ? 'Re-encrypting with the new passcode…' : 'Encrypting and publishing…', 'info');
+      try { await startShare(l, pass, opts); openShareDialog(listId); toast(on ? 'Passcode changed' : `Sharing ${l.name}`); } catch (err) { say(err.message || 'Could not publish'); }
+    });
+  });
+}
+
 function setProjectStatus(id, status) {
   const p = getList(id);
   if (!p || !isProject(p) || p.status === status) return;
@@ -3645,6 +3761,7 @@ async function handleAction(a, el, id) {
     case 'close-sidebar': document.body.classList.remove('sidebar-open'); break;
     case 'add-list': editList(null); break;
     case 'new-project': editList(null, el.dataset.space); break;
+    case 'share': openShareDialog(el.dataset.list); break;
     case 'project-status': setProjectStatus(el.dataset.list, el.dataset.status); break;
     case 'edit-list': editList(el.dataset.list); break;
     case 'settings': openSettings(); break;
@@ -4918,6 +5035,7 @@ let syncUserId = null;
 function onSyncStatus() {
   renderGate();
   renderSidebar();
+  if (DoableSync.user && DoableSync.status === 'synced') scheduleRepublish();
   const uidNow = DoableSync.user && DoableSync.user.id;
   if (uidNow && uidNow !== syncUserId) setTimeout(() => refreshAllGcal(), 0); // the website loads calendars via the signed-in proxy
   syncUserId = uidNow || null;
@@ -4981,7 +5099,7 @@ function openAccount(mode = 'signin') {
           const ok = await confirmDialog({ title: 'Sign out?', message: gateOn() ? 'Your tasks are safe in your account and will be removed from this device until you sign in again.' : 'Your tasks stay on this device, but stop syncing until you sign in again.', confirm: 'Sign out', danger: false });
           if (ok) {
             await S.signOut();
-            if (gateOn()) { state = seedState(); undoStack.length = 0; try { localStorage.removeItem(AI_CHAT); localStorage.removeItem(GCAL_KEY); } catch { /* ignore */ } gcalCache = {}; ui.view = { type: 'smart', id: 'today' }; ui.openId = null; save(); render(); }
+            if (gateOn()) { state = seedState(); undoStack.length = 0; try { localStorage.removeItem(AI_CHAT); localStorage.removeItem(GCAL_KEY); localStorage.removeItem(SHARE_KEYS); } catch { /* ignore */ } gcalCache = {}; ui.view = { type: 'smart', id: 'today' }; ui.openId = null; save(); render(); }
             else toast('Signed out — tasks kept on this device');
           }
         }
@@ -5117,6 +5235,6 @@ if (!isNative && 'serviceWorker' in navigator && location.protocol.startsWith('h
 }
 // Local development only: lets browser tests drive the app (never on the real site or in the APK)
 if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
-  window.__doable = { get state() { return state; }, get ui() { return ui; }, navigate, getList, toggleComplete, projectTasks, syncRecords, renderGate, render };
+  window.__doable = { get state() { return state; }, get ui() { return ui; }, navigate, getList, toggleComplete, projectTasks, syncRecords, renderGate, render, shareSnapshot, shareUrl };
 }
 })();
