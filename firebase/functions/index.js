@@ -2,12 +2,13 @@
 // Browsers can't fetch Google's feed directly (no CORS headers); the Android app doesn't need this.
 // Only signed-in Doable users, only well-known calendar hosts, read-only, nothing is stored or logged.
 //
-// Deploy (needs the Blaze plan):  npm run deploy:calendar
+// Deploy (needs the Blaze plan):  npm run deploy:functions
 const { onRequest } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 
 initializeApp();
+exports.mcp = require('./mcp.js').mcp; // cloud MCP server (Claude on phone / claude.ai / any computer)
 
 const ALLOWED_HOSTS = [
   /^calendar\.google\.com$/,

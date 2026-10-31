@@ -3663,7 +3663,12 @@ function openClaudeMcpHelp() {
   openModal(`
     <div class="modal-card wide mcp-card">
       <div class="modal-title-row"><h2>${icon('sparkles')} Use Doable with Claude</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
-      <p class="muted small">Doable ships an MCP server that lets Claude Code and the Claude desktop app read and change your tasks, freelance projects, bugs and feature requests, timers and habits. It runs on your computer, signs in as you, and every change appears in the app within a second with Undo. Three steps, once per computer.</p>
+      <p class="muted small">Claude can read and change your tasks, freelance projects, bugs and feature requests, timers and habits. Every change appears in the app within a second, with Undo.</p>
+      <div class="mcp-step"><div class="mcp-step-head"><b>Anywhere: claude.ai, the Claude phone app, Claude Code</b><button class="btn ghost sm" data-copy="mcp-cloud">${icon('copy')}Copy URL</button></div>
+        <p class="muted small">Add this as a <b>custom connector</b> (claude.ai: Settings → Connectors → Add custom connector; Claude Code: <code>claude mcp add --transport http doable &lt;URL&gt;</code>). On first use it opens a Doable page where you sign in with Google once. Only the owner's Google account is accepted.</p>
+        <pre id="mcp-cloud">${esc((window.DOABLE_CONFIG || {}).siteUrl ? (window.DOABLE_CONFIG.siteUrl.replace(/\/$/, '') + '/mcp') : location.origin + '/mcp')}</pre></div>
+      <h3 class="set-h">Or run it on this computer only</h3>
+      <p class="muted small">For offline use, or if you'd rather not use the cloud one. Three steps, once per computer.</p>
       ${!(S && S.user) ? `<p class="form-msg err">Sign in to Cloud sync first; the server uses your Doable account.</p>` : ''}
       ${S && S.user && !hasPassword ? `<p class="form-msg err">Your account has no password yet. Open Cloud sync (bottom of the sidebar) → <b>Add password</b> first; the server signs in with email + password.</p>` : ''}
       <ol class="mcp-steps">
@@ -3679,7 +3684,7 @@ function openClaudeMcpHelp() {
         <li>“Mark the contact-form bug fixed in v1.2.0” · “Start timing ‘build pages’”</li>
         <li>“Log my kriya” · “I spent 2 hours on the invoice feature”</li>
       </ul>
-      <p class="muted small">Full guide: <a href="${repo}/blob/main/mcp/USING-WITH-CLAUDE.md" target="_blank" rel="noopener">mcp/USING-WITH-CLAUDE.md</a>. The server only works on this computer; Claude on your phone or claude.ai would need a cloud version.</p>
+      <p class="muted small">Full guide: <a href="${repo}/blob/main/mcp/USING-WITH-CLAUDE.md" target="_blank" rel="noopener">mcp/USING-WITH-CLAUDE.md</a>.</p>
     </div>`, m => {
     m.addEventListener('click', async e => {
       const b = e.target.closest('[data-copy]');

@@ -44,6 +44,85 @@
           }
         ]
       }
+    ],
+    "rewrites": [
+      {
+        "source": "/mcp",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/mcp/**",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/authorize",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/authorize/**",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/token",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/register",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/revoke",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/.well-known/oauth-protected-resource",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/.well-known/oauth-protected-resource/**",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/.well-known/oauth-authorization-server",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/.well-known/oauth-authorization-server/**",
+        "function": {
+          "functionId": "mcp",
+          "region": "asia-south1"
+        }
+      }
     ]
   },
   "firestore": {

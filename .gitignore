@@ -34,3 +34,8 @@ Thumbs.db
 # Firebase deploy cache
 .firebase/
 mcp/node_modules/
+
+# Copied into the function at deploy time by scripts/prep-functions.js (sources: mcp/tools.mjs, web/issues.js, web/timelog.js)
+firebase/functions/tools.mjs
+firebase/functions/web/
+firebase/functions/node_modules/

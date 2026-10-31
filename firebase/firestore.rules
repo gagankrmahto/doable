@@ -14,6 +14,8 @@ service cloud.firestore {
     }
     // Passcode-shared spaces: an encrypted snapshot anyone with the link may fetch; only its owner can
     // publish or remove it, and the owner is pinned at creation. Without the passcode the blob is noise.
+    // OAuth state for the cloud MCP server: server-side only (the Admin SDK bypasses rules)
+    match /oauth/{id} { allow read, write: if false; }
     match /shared/{id} {
       allow read: if true;
       allow create: if request.auth != null && request.resource.data.owner == request.auth.uid

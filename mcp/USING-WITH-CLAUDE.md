@@ -4,6 +4,11 @@ Once the MCP server is set up (see [README.md](README.md)), any Claude session c
 
 ## Where it works
 
+**Anywhere, via the cloud server (recommended):** the MCP URL is `https://doable-gagan.web.app/mcp`. Add it as a custom connector in claude.ai (Settings → Connectors → Add custom connector), in the Claude phone app, or in Claude Code with `claude mcp add --transport http doable https://doable-gagan.web.app/mcp`. The first use opens a Doable page where you sign in with Google once; only the owner's Google account is accepted. No password file, nothing to install.
+
+**On this PC only, via the local server:** the table below. Useful when offline or if you prefer not to use the cloud one.
+
+
 | Where | Setup | How to tell it's on |
 |---|---|---|
 | **Claude Code** (any folder, any session) | `claude mcp add --scope user doable -e DOABLE_EMAIL=you@gmail.com -- node C:\ws\tools\doable\mcp\server.mjs` | `claude mcp list` shows `doable … ✔ Connected` |
