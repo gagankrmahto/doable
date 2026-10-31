@@ -1528,3 +1528,12 @@ body.assistant-open .assistant {
   .ai-btn span { display: none; }
   body.assistant-open .assistant { width: 100vw; border-left: 0; }
 }
+
+/* Account: Google sign-in and adding a password */
+.google-btn { justify-content: center; gap: 10px; height: 42px; width: 100%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 650; }
+.google-btn:hover { background: var(--surface-2); }
+.or-line { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-3); }
+.or-line::before, .or-line::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.acct-pw { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; background: var(--surface-2); }
+.acct-pw input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; outline: none; }
+.acct-pw input:focus { border-color: var(--accent); }

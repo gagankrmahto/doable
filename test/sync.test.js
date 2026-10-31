@@ -3,7 +3,7 @@ const assert = require('assert');
 require('../web/sync.js');
 const { createEngine } = globalThis.DoableSyncEngine;
 
-// --- Fake Supabase: server clock, jsonb-style key reordering, realtime fan-out ---
+// --- Fake server: server clock, key reordering, realtime fan-out ---
 function createServer() {
   const rows = new Map();
   const subs = new Set();

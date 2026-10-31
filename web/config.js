@@ -1,9 +1,8 @@
-// Cloud sync settings. Fill these in from Supabase → Project Settings → API (see SETUP.md).
-// The "anon"/"publishable" key is designed to be public: row level security keeps each user's data private.
-// Leave them empty to run Doable as a local-only app.
+// Cloud sync settings: the Firebase web app config from Firebase console → Project settings → Your apps (see SETUP.md).
+// These values are meant to be public: Firebase security rules keep each user's data private.
+// Leave `firebase` empty to run Doable as a local-only app.
 window.DOABLE_CONFIG = window.DOABLE_CONFIG || {
-  supabaseUrl: '',
-  supabaseAnonKey: '',
-  // Where email confirmation / password reset links should land (your GitHub Pages URL).
+  firebase: null,
+  // Where password-reset links return to (your website address).
   siteUrl: '',
 };

@@ -1431,7 +1431,7 @@ const sacredOn = () => eventScope().includes('aol') && layerOn('aol');
 /* ---------- Google Calendar (any iCal feed: Google, Outlook, iCloud) ----------
  * The feed list syncs in settings.gcal; fetched events are cached per device in localStorage.
  * The Android app fetches feeds directly. Browsers can't (Google sends no CORS headers),
- * so the website goes through the `ics-proxy` Supabase function for signed-in users. */
+ * so the website goes through Doable's `icsProxy` Cloud Function for signed-in users. */
 const GCAL_KEY = 'doable:gcal';
 const GCAL_COLORS = ['#4285f4', '#33b679', '#e67c73', '#f6bf26', '#8e24aa', '#f4511e', '#039be5', '#616161'];
 const GCAL_STALE = 15 * 60000;
@@ -1488,19 +1488,24 @@ async function fetchFeed(url) {
   const cfg = window.DOABLE_CONFIG || {};
   const S = window.DoableSync;
   const token = S && S.user ? await S.accessToken() : null;
-  if (!cfg.supabaseUrl || !token) {
-    const err = new Error('On the website, sign in to Cloud sync to load this calendar. The Android app loads it directly.');
-    err.needsSync = true;
-    throw err;
+  const project = cfg.firebase && cfg.firebase.projectId;
+  const later = text => Object.assign(new Error(text), { needsSync: true }); // shown as a note, retried on the next refresh
+  if (!project || !token) throw later('On the website, sign in to Cloud sync to load this calendar. The Android app loads it directly.');
+  let r;
+  try {
+    r = await fetch(cfg.icsProxyUrl || `https://asia-south1-${project}.cloudfunctions.net/icsProxy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ url }), // in the body, not the query string, so the secret address stays out of logs
+    });
+  } catch {
+    // A missing function answers without CORS headers, which the browser reports as a network error
+    throw later(navigator.onLine === false ? 'You’re offline — showing the last copy.' : 'Google Calendar on the website needs the calendar proxy (see SETUP.md). The Android app loads it directly.');
   }
-  const r = await fetch(`${cfg.supabaseUrl.replace(/\/$/, '')}/functions/v1/ics-proxy`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: cfg.supabaseAnonKey },
-    body: JSON.stringify({ url }), // in the body, not the query string, so the secret address stays out of logs
-  });
   if (!r.ok) {
     const msg = await r.json().then(j => j.error).catch(() => '');
-    throw new Error(msg || (r.status === 404 ? 'The calendar proxy isn’t set up yet (see SETUP.md)' : `Couldn’t load the calendar (${r.status})`));
+    if (r.status === 404 && !msg) throw later('Google Calendar on the website needs the calendar proxy (see SETUP.md). The Android app loads it directly.');
+    throw new Error(msg || `Couldn’t load the calendar (${r.status})`);
   }
   return r.text();
 }
@@ -4715,7 +4720,7 @@ function openAccount(mode = 'signin') {
       <div class="modal-card" data-account="setup">
         <div class="modal-title-row"><h2>Cloud sync</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
         <div class="acct-hero">${icon('cloud')}<p>Sync keeps your tasks identical on every computer and phone you sign in to — instantly, and it still works offline.</p></div>
-        <p class="muted small">Sync hasn't been connected for this copy of Doable yet. Whoever hosts it adds a free Supabase project to <code>web/config.js</code> — the step-by-step guide is in <code>SETUP.md</code>.</p>
+        <p class="muted small">Sync hasn't been connected for this copy of Doable yet. Whoever hosts it adds a free Firebase project to <code>web/config.js</code> — the step-by-step guide is in <code>SETUP.md</code>.</p>
         <div class="modal-actions"><span class="spacer"></span><button class="btn primary" data-m="cancel">Got it</button></div>
       </div>`);
     return;
@@ -4729,6 +4734,12 @@ function openAccount(mode = 'signin') {
           <div class="acct-id"><b>${esc(S.user.email)}</b><span class="acct-status">${acctStatusLine()}</span></div>
         </div>
         <p class="muted small">Changes sync automatically to every device signed in to this account. You can keep working offline — everything uploads when you're back online.</p>
+        ${S.user.providers && !S.user.providers.includes('password') ? `<form class="acct-pw" autocomplete="off">
+          <b>Sign in on the Android app</b>
+          <span class="muted small">You signed in with Google, which the Android app can't use. Add a password to this account, then sign in on your phone with ${esc(S.user.email)} and that password.</span>
+          <div class="row gap"><input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="New password (6+ characters)" aria-label="New password"><button class="btn ghost sm" type="submit">Add password</button></div>
+          <p class="form-msg" role="status" aria-live="polite"></p>
+        </form>` : ''}
         <div class="modal-actions">
           <button class="btn ghost danger-text" data-a="signout">Sign out</button>
           <span class="spacer"></span>
@@ -4743,6 +4754,15 @@ function openAccount(mode = 'signin') {
           if (ok) { await S.signOut(); toast('Signed out — tasks kept on this device'); }
         }
       });
+      const pw = m.querySelector('.acct-pw');
+      if (pw) pw.addEventListener('submit', async e => {
+        e.preventDefault();
+        const out = pw.querySelector('.form-msg');
+        const { error } = await S.addPassword(pw.password.value);
+        out.textContent = error ? authError(error) : 'Password added — use it to sign in on the Android app.';
+        out.className = `form-msg ${error ? 'err' : 'ok'}`;
+        if (!error) pw.password.value = '';
+      });
     });
     return;
   }
@@ -4755,7 +4775,9 @@ function openAccount(mode = 'signin') {
         <button type="button" class="${!signup ? 'on' : ''}" data-mode="signin">Sign in</button>
         <button type="button" class="${signup ? 'on' : ''}" data-mode="signup">Create account</button>
       </div>
-      <label class="lbl">Email<input name="email" type="email" autocomplete="email" required autofocus placeholder="you@example.com"></label>
+      ${S.canUseGoogle() ? `<button type="button" class="btn google-btn" data-a="google"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg><span>Continue with Google</span></button>
+      <div class="or-line"><span>or use email</span></div>` : ''}
+      <label class="lbl">Email<input name="email" type="email" autocomplete="email" required ${S.canUseGoogle() ? '' : 'autofocus'} placeholder="you@example.com"></label>
       <label class="lbl">Password<input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required minlength="6" placeholder="${signup ? 'At least 6 characters' : 'Your password'}"></label>
       <p class="form-msg" role="status" aria-live="polite"></p>
       <div class="modal-actions">
@@ -4771,11 +4793,19 @@ function openAccount(mode = 'signin') {
     m.addEventListener('click', async e => {
       const switchTo = e.target.closest('[data-mode]');
       if (switchTo) { openAccount(switchTo.dataset.mode); return; }
+      if (e.target.closest('[data-a="google"]')) {
+        say('Opening Google…', 'info');
+        const { error } = await S.signInWithGoogle();
+        if (error) { say(authError(error)); return; }
+        closeModal();
+        toast('Signed in — syncing your tasks');
+        return;
+      }
       if (e.target.closest('[data-a="forgot"]')) {
         const email = form.email.value.trim();
         if (!email) { say('Enter your email first, then tap “Forgot password?”'); return; }
         const { error } = await S.resetPassword(email);
-        say(error ? authError(error) : 'Check your email for a link to set a new password.', error ? 'err' : 'ok');
+        say(error ? authError(error) : 'If that email has an account, a link to set a new password is on its way.', error ? 'err' : 'ok');
       }
     });
     form.addEventListener('submit', async e => {
@@ -4785,51 +4815,44 @@ function openAccount(mode = 'signin') {
       if (!email || !password) { say('Enter your email and password.'); return; }
       btn.disabled = true;
       say(signup ? 'Creating your account…' : 'Signing in…', 'info');
-      const { data, error } = signup ? await S.signUp(email, password) : await S.signIn(email, password);
+      const { error } = signup ? await S.signUp(email, password) : await S.signIn(email, password);
       btn.disabled = false;
       if (error) { say(authError(error)); return; }
-      if (signup && !data.session) { say('Almost done — open the confirmation email we sent, then sign in here.', 'ok'); return; }
       closeModal();
       toast('Signed in — syncing your tasks');
     });
   });
 }
 
+// Firebase Auth error codes in plain words
+const AUTH_ERRORS = {
+  'auth/network-request-failed': 'Can’t reach the sync server. Check your internet connection and try again.',
+  'auth/invalid-credential': 'That email and password don’t match. Try again, or reset your password.',
+  'auth/wrong-password': 'That email and password don’t match. Try again, or reset your password.',
+  'auth/user-not-found': 'That email and password don’t match. Try again, or reset your password.',
+  'auth/invalid-email': 'That doesn’t look like an email address.',
+  'auth/email-already-in-use': 'That email already has an account — switch to Sign in (or Continue with Google).',
+  'auth/weak-password': 'Choose a password with at least 6 characters.',
+  'auth/too-many-requests': 'Too many attempts. Please wait a few minutes and try again.',
+  'auth/admin-restricted-operation': 'New accounts are switched off for this Doable. Sign in with the existing account.',
+  'auth/operation-not-allowed': 'That sign-in method isn’t switched on for this Doable yet.',
+  'auth/popup-closed-by-user': 'Google sign-in was closed before it finished.',
+  'auth/cancelled-popup-request': 'Google sign-in was closed before it finished.',
+  'auth/popup-blocked': 'Your browser blocked the Google sign-in window. Allow pop-ups for this site and try again.',
+  'auth/account-exists-with-different-credential': 'That email already has an account with a password — sign in with email instead.',
+  'auth/requires-recent-login': 'For safety, sign out and back in, then try again.',
+  'auth/provider-already-linked': 'This account already has a password.',
+  'auth/credential-already-in-use': 'That email already has a password on another account.',
+};
 function authError(err) {
+  const code = (err && err.code) || '';
   const m = (err && err.message) || '';
-  if (/fetch|network|load failed/i.test(m)) return 'Can’t reach the sync server. Check your internet connection and try again.';
-  if (/invalid login credentials/i.test(m)) return 'That email and password don’t match. Try again, or reset your password.';
-  if (/email not confirmed/i.test(m)) return 'Please confirm your email first — check your inbox for the link.';
-  if (/already registered|already exists/i.test(m)) return 'That email already has an account — switch to Sign in.';
-  if (/rate limit|too many/i.test(m)) return 'Too many attempts. Please wait a minute and try again.';
-  return m || 'Something went wrong — please try again.';
-}
-
-function onPasswordRecovery() {
-  openModal(`
-    <form class="modal-card" data-account="recover">
-      <h2>Set a new password</h2>
-      <label class="lbl">New password<input name="password" type="password" autocomplete="new-password" minlength="6" required autofocus></label>
-      <p class="form-msg" role="status"></p>
-      <div class="modal-actions"><span class="spacer"></span><button class="btn primary">Save password</button></div>
-    </form>`, m => {
-    const form = m.querySelector('form');
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const { error } = await DoableSync.updatePassword(form.password.value);
-      if (error) { const p = m.querySelector('.form-msg'); p.textContent = error.message; p.className = 'form-msg err'; return; }
-      closeModal();
-      toast('Password updated');
-    });
-  });
+  if (AUTH_ERRORS[code]) return AUTH_ERRORS[code];
+  if (/network|fetch/i.test(m)) return AUTH_ERRORS['auth/network-request-failed'];
+  return m.replace(/^Firebase: /, '').replace(/\s*\(auth\/[\w-]+\)\.?$/, '') || 'Something went wrong — please try again.';
 }
 
 /* ---------- Boot ---------- */
-const authHash = /access_token=|error_description=|type=recovery/.test(location.hash);
-if (authHash) {
-  const err = new URLSearchParams(location.hash.slice(1)).get('error_description');
-  if (err) setTimeout(() => toast(err.replace(/\+/g, ' ')), 500);
-}
 applyTheme();
 applyLocation();
 if (ensureSpaces() | ensureSadhana()) save();
@@ -4838,7 +4861,7 @@ bindDetails();
 bindAssistant();
 bindNative();
 render();
-if (!authHash && !applyHash()) syncHash();
+if (!applyHash()) syncHash();
 addEventListener('hashchange', applyHash);
 checkReminders();
 refreshLocationIfAllowed();
@@ -4853,7 +4876,6 @@ if (window.DoableSync) {
     isPristine: () => !!state.meta.pristine,
     chooseFirstSync,
     onSyncStatus,
-    onPasswordRecovery,
   });
 }
 

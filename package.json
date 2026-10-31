@@ -5,11 +5,13 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node test/sync.test.js && node test/moon.test.js && node test/contacts.test.js && node test/ics.test.js && node test/planner.test.js && node test/assistant.test.js",
+    "test": "node test/sync.test.js && node test/firestore.test.js && node test/moon.test.js && node test/contacts.test.js && node test/ics.test.js && node test/planner.test.js && node test/assistant.test.js",
     "vendor": "node scripts/vendor.js",
     "sync:android": "npm run vendor && cap sync android",
     "build:android": "npm run sync:android && cd android && gradlew assembleRelease",
-    "open:android": "cap open android"
+    "open:android": "cap open android",
+    "deploy": "firebase deploy --only hosting,firestore",
+    "deploy:calendar": "npm --prefix firebase/functions install && firebase deploy --only functions"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
@@ -21,7 +23,7 @@
     "@anthropic-ai/sdk": "^0.136.0",
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.3",
-    "@supabase/supabase-js": "^2.118.0",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "firebase": "^13.1.0"
   }
 }

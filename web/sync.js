@@ -9,7 +9,7 @@
   const DELETED = '~deleted~';
   const OVERLAP_MS = 5000; // re-read a few seconds back on each pull so late commits are never missed
 
-  // Key-sorted JSON so records compare equal no matter how Postgres reorders jsonb keys.
+  // Key-sorted JSON so records compare equal however the server or JSON round-trips order their keys.
   function stable(v) {
     if (v === null || v === undefined || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
     if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
@@ -17,8 +17,8 @@
   }
   const kindOf = id => (id.includes(':') ? id.slice(0, id.indexOf(':')) : id);
 
-  /* ---------- Engine (no DOM, no Supabase — unit-testable) ----------
-   * backend: { fetchSince(isoOrNull) -> rows, upsert(rows), subscribe(onRows, onState) -> unsubscribe }
+  /* ---------- Engine (no DOM, no server SDK — unit-testable) ----------
+   * backend: { fetchSince(isoOrNull) -> rows, upsert(rows), subscribe(onRows, onState, sinceIsoOrNull) -> unsubscribe }
    * store:   { load() -> meta|null, save(meta), clear() }
    * app:     { records() -> Map<id,{kind,data}>, apply(rows), replaceAll(rows), isPristine(), chooseFirstSync() -> 'merge'|'replace' }
    * rows:    { id, kind, data, deleted, updated_at } */
@@ -120,6 +120,7 @@
           saveMeta();
           setStatus('synced');
         } catch (e) {
+          if (!running) return; // finished after sign-out: nothing to report or retry
           const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
           setStatus(offline ? 'offline' : 'error', e && (e.message || String(e)));
           clearTimeout(retryTimer);
@@ -139,6 +140,7 @@
       unsubscribe = backend.subscribe(
         rows => enqueue(() => ingest(rows), { quiet: true }),
         state => { if (state === 'SUBSCRIBED') syncNow(); },
+        meta.cursor, // the last server time seen, so live updates never depend on this device's clock
       );
     }
 
@@ -170,37 +172,44 @@
     };
   }
 
-  /* ---------- Supabase backend ---------- */
-  const TABLE = 'doable_records';
-  function supabaseBackend(client, userId) {
+  /* ---------- Firestore backend ----------
+   * users/{uid}/records/{id} = { kind, json, deleted, updated_at }
+   * `json` is the record as JSON text (null once deleted), so any shape round-trips exactly;
+   * `updated_at` is always the server's clock (the security rules enforce it), which orders pulls. */
+  function firestoreBackend(fb, db, uid, { timeoutMs = 20000 } = {}) {
+    const col = fb.collection(db, 'users', uid, 'records');
+    const toRow = d => {
+      const x = d.data();
+      return { id: d.id, kind: x.kind, data: x.json ? JSON.parse(x.json) : null, deleted: !!x.deleted, updated_at: x.updated_at.toDate().toISOString() };
+    };
+    // Firestore waits quietly while offline; give up after a while so the engine can report it and retry
+    const timed = (p, what) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} timed out (offline?)`)), timeoutMs))]);
     return {
       async fetchSince(since) {
-        const out = [];
-        const page = 1000;
-        for (let from = 0; ; from += page) {
-          let q = client.from(TABLE).select('id,kind,data,deleted,updated_at')
-            .order('updated_at', { ascending: true }).order('id', { ascending: true })
-            .range(from, from + page - 1);
-          if (since) q = q.gte('updated_at', since);
-          const { data, error } = await q;
-          if (error) throw error;
-          out.push(...data);
-          if (data.length < page) return out;
-        }
+        const q = since ? fb.query(col, fb.where('updated_at', '>=', fb.Timestamp.fromMillis(Date.parse(since))), fb.orderBy('updated_at')) : col;
+        const snap = await timed(fb.getDocsFromServer(q), 'Download'); // never the local cache: an empty cache must not look like an empty account
+        return snap.docs.filter(d => d.data().updated_at).map(toRow);
       },
       async upsert(rows) {
-        for (let i = 0; i < rows.length; i += 400) {
-          const chunk = rows.slice(i, i + 400).map(r => ({ user_id: userId, id: r.id, kind: r.kind, data: r.data, deleted: r.deleted }));
-          const { error } = await client.from(TABLE).upsert(chunk, { onConflict: 'user_id,id' });
-          if (error) throw error;
+        for (let i = 0; i < rows.length; i += 450) { // a batch holds at most 500 writes
+          const batch = fb.writeBatch(db);
+          for (const r of rows.slice(i, i + 450)) {
+            batch.set(fb.doc(col, r.id), { kind: r.kind, json: r.deleted ? null : JSON.stringify(r.data), deleted: !!r.deleted, updated_at: fb.serverTimestamp() });
+          }
+          await timed(batch.commit(), 'Upload');
         }
       },
-      subscribe(onRows, onState) {
-        const channel = client.channel(`doable:${userId}`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: TABLE, filter: `user_id=eq.${userId}` },
-            p => { if (p.new && p.new.id) onRows([p.new]); })
-          .subscribe(s => onState(s));
-        return () => client.removeChannel(channel);
+      subscribe(onRows, onState, since) {
+        let first = true;
+        const from = since ? Date.parse(since) - OVERLAP_MS : Date.now() - 3600000; // a new account: allow for a skewed clock
+        const recent = fb.query(col, fb.where('updated_at', '>=', fb.Timestamp.fromMillis(from)));
+        return fb.onSnapshot(recent, snap => {
+          if (first) { first = false; onState('SUBSCRIBED'); return; } // the pull that follows covers everything up to now
+          const rows = snap.docChanges()
+            .filter(c => c.type !== 'removed' && !c.doc.metadata.hasPendingWrites && c.doc.data().updated_at)
+            .map(c => toRow(c.doc));
+          if (rows.length) onRows(rows);
+        }, () => onState('CHANNEL_ERROR'));
       },
     };
   }
@@ -221,12 +230,14 @@
     error: null,
     leader: true,
   };
-  let client = null;
+  let fb = null;
+  let auth = null;
+  let db = null;
   let engine = null;
   let appHooks = null;
   let releaseLock = null;
   let lockAbort = null;
-  const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('doable-sync') : null;
+  const channel = typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('doable-sync') : null; // tabs only
 
   function publish(status, info = {}) {
     Sync.status = status;
@@ -252,7 +263,7 @@
     publish('syncing');
     const run = async () => {
       Sync.leader = true;
-      engine = createEngine({ backend: supabaseBackend(client, user.id), store: localStore, app: appHooks, onStatus: publish });
+      engine = createEngine({ backend: firestoreBackend(fb, db, user.id), store: localStore, app: appHooks, onStatus: publish });
       await engine.start(user.id);
       await new Promise(res => { releaseLock = res; }); // hold leadership until sign-out / tab close
     };
@@ -272,49 +283,57 @@
   Sync.init = function init(hooks) {
     appHooks = hooks;
     const cfg = global.DOABLE_CONFIG || {};
-    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || !global.supabase) { publish('unconfigured'); return; }
+    fb = global.firebaseSdk;
+    if (!cfg.firebase || !cfg.firebase.apiKey || !fb) { publish('unconfigured'); return; }
     Sync.configured = true;
-    client = global.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'doable-auth' },
-    });
+    const app = fb.initializeApp(cfg.firebase);
+    auth = fb.getAuth(app);
+    db = fb.getFirestore(app);
     publish('signed-out');
-    client.auth.onAuthStateChange((event, session) => {
-      // Defer: Supabase recommends not calling its APIs inside this callback synchronously.
-      setTimeout(() => {
-        if (event === 'PASSWORD_RECOVERY') hooks.onPasswordRecovery();
-        const user = session ? session.user : null;
-        if ((user && user.id) !== (Sync.user && Sync.user.id)) {
-          end();
-          Sync.user = user;
-          if (user) begin(user); else publish('signed-out');
-        }
-        if (/access_token=|error_description=/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
-        hooks.onSyncStatus();
-      }, 0);
+    fb.onAuthStateChanged(auth, u => {
+      const user = u ? { id: u.uid, email: u.email, providers: u.providerData.map(p => p.providerId) } : null;
+      if ((user && user.id) !== (Sync.user && Sync.user.id)) {
+        end();
+        Sync.user = user;
+        if (user) begin(user); else publish('signed-out');
+      } else Sync.user = user; // same person, e.g. a password was just added
+      hooks.onSyncStatus();
     });
     addEventListener('online', () => Sync.syncNow());
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.syncNow(); });
     setInterval(() => { if (document.visibilityState === 'visible') Sync.syncNow(); }, 120000);
   };
 
+  // Auth calls resolve to { data, error } so the screens can show friendly messages
+  const attempt = async fn => { try { return { data: await fn(), error: null }; } catch (error) { return { data: null, error }; } };
+  const isNativeApp = () => !!(global.Capacitor && global.Capacitor.isNativePlatform && global.Capacitor.isNativePlatform());
+
   Sync.changed = () => { if (engine) engine.changed(); };
   Sync.syncNow = () => (engine ? engine.syncNow() : Promise.resolve());
-  Sync.signIn = (email, password) => client.auth.signInWithPassword({ email, password });
-  Sync.signUp = (email, password) => client.auth.signUp({ email, password, options: { emailRedirectTo: redirectUrl() } });
-  Sync.resetPassword = email => client.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl() });
-  Sync.updatePassword = password => client.auth.updateUser({ password });
-  // Signed-in user's token, for Doable's own server functions (e.g. the calendar feed proxy)
-  Sync.accessToken = async () => {
-    if (!client) return null;
-    const { data } = await client.auth.getSession();
-    return (data && data.session && data.session.access_token) || null;
-  };
+  Sync.signIn = (email, password) => attempt(() => fb.signInWithEmailAndPassword(auth, email, password));
+  Sync.signUp = (email, password) => attempt(async () => {
+    const cred = await fb.createUserWithEmailAndPassword(auth, email, password);
+    fb.sendEmailVerification(cred.user).catch(() => {}); // a verified email lets Google sign-in join this same account later
+    return cred;
+  });
+  // Google blocks its sign-in page inside app web views, so the Android app uses email + password
+  Sync.canUseGoogle = () => !isNativeApp();
+  Sync.signInWithGoogle = () => attempt(() => fb.signInWithPopup(auth, new fb.GoogleAuthProvider()));
+  Sync.resetPassword = email => attempt(() => fb.sendPasswordResetEmail(auth, email, redirectUrl() ? { url: redirectUrl() } : undefined));
+  // Lets an account created with Google also sign in with email + password (for the Android app)
+  Sync.addPassword = password => attempt(async () => {
+    await fb.linkWithCredential(auth.currentUser, fb.EmailAuthProvider.credential(auth.currentUser.email, password));
+    const u = auth.currentUser;
+    Sync.user = { id: u.uid, email: u.email, providers: u.providerData.map(p => p.providerId) };
+  });
+  // Signed-in user's ID token, for Doable's own server functions (the calendar feed proxy)
+  Sync.accessToken = async () => (auth && auth.currentUser ? auth.currentUser.getIdToken() : null);
   Sync.signOut = async () => {
     end();
     localStore.clear();
-    await client.auth.signOut();
+    await fb.signOut(auth);
   };
 
   global.DoableSync = Sync;
-  global.DoableSyncEngine = { createEngine, stable, DELETED };
+  global.DoableSyncEngine = { createEngine, firestoreBackend, stable, DELETED };
 })(typeof window !== 'undefined' ? window : globalThis);

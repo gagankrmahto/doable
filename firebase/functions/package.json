@@ -1,0 +1,11 @@
+{
+  "name": "doable-calendar-proxy",
+  "private": true,
+  "description": "Lets the Doable website read a calendar's iCal feed (browsers can't fetch Google's directly).",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "dependencies": {
+    "firebase-admin": "^14.5.0",
+    "firebase-functions": "^7.4.0"
+  }
+}
