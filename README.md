@@ -32,6 +32,7 @@ Then open http://localhost:4321. Without a Firebase project in `web/config.js`, 
 | **Art of Living calendar** (Gurudev's birthday, Guru Purnima, Shivaratri, Navratri schedule, Yoga & Meditation days) | | ✅ |
 | **NGO planning days** (Daan Utsav, Children's Day, Volunteer Day, GivingTuesday, key filing dates…) | | ✅ |
 | One tap turns any festival or event into a planned task | | ✅ |
+| **Freelance space**: client projects and your own software as projects with status (lead → proposal → active → delivered → paid), milestones with a progress bar, deadline, price and payments, and alerts on Today for overdue, stale or unpaid work | | ✅ |
 | **Ask Claude**: an assistant (Claude Opus 5.5) that reads your tasks, calendar, panchang and habits and can add, reschedule or complete things for you, all undoable; uses your own Anthropic API key, kept on the device | | ✅ |
 | **Course planner**: suggests the best dates for a course (moon & tithi, festivals, weekends, Rahu Kaal, clashes with your calendar) and adds the sessions plus an organiser checklist | | ✅ |
 | **Google Calendar inside Doable**: your events and meetings (with Join for Meet/Zoom/Teams) on every calendar, per-calendar colour and space; Outlook and iCloud feeds work too | | ✅ |

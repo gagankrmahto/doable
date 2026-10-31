@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node test/sync.test.js && node test/firestore.test.js && node test/moon.test.js && node test/contacts.test.js && node test/ics.test.js && node test/planner.test.js && node test/assistant.test.js",
+    "test": "node test/sync.test.js && node test/firestore.test.js && node test/moon.test.js && node test/contacts.test.js && node test/ics.test.js && node test/planner.test.js && node test/assistant.test.js && node test/freelance.test.js",
     "vendor": "node scripts/vendor.js",
     "sync:android": "npm run vendor && cap sync android",
     "build:android": "npm run sync:android && cd android && gradlew assembleRelease",

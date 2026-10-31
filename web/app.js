@@ -221,12 +221,23 @@ const SPACES = [
   { id: 'work', name: 'Work', color: '#0090ff', aliases: ['work'] },
   { id: 'aol', name: 'Art of Living', color: '#f76b15', events: ['aol', 'moon'], aliases: ['art of living', 'aol'] },
   { id: 'ngo', name: 'NexJyoti NGO', color: '#12a594', events: ['ngo'], aliases: ['nexjyoti ngo', 'nexjyoti', 'ngo'] },
+  { id: 'freelance', name: 'Freelance', color: '#8e4ec6', aliases: ['freelance', 'clients', 'projects'], projects: true },
 ];
+// Fields a project (a list inside the Freelance space) carries beyond a plain list
+const PROJECT_FIELDS = ['client', 'contact', 'status', 'due', 'price', 'paid', 'link', 'repo', 'stack', 'notes', 'createdAt', 'updatedAt', 'share'];
 const listFrom = l => {
   const out = { id: String(l.id), name: String(l.name || 'Untitled'), color: l.color || LIST_COLORS[0] };
   if (SPACES.some(s => s.id === l.space)) out.space = l.space;
+  if (l.project && SPACES.some(s => s.id === l.project && s.projects)) {
+    out.project = l.project;
+    for (const k of PROJECT_FIELDS) if (l[k] !== undefined && l[k] !== null && l[k] !== '') out[k] = l[k];
+    if (!Freelance.STATUSES.some(x => x.v === out.status)) out.status = 'lead';
+  }
   return out;
 };
+const isProject = l => !!(l && l.project);
+const projectsOf = spaceId => state.lists.filter(l => l.project === spaceId);
+const projectTasks = id => state.tasks.filter(t => t.listId === id);
 const spaceOf = list => list && SPACES.find(s => s.id === list.space);
 const spaceList = spaceId => state.lists.find(l => l.space === spaceId);
 
@@ -278,16 +289,18 @@ function ensureSadhana() {
 }
 
 // Make sure each space has a list (once per account; deterministic ids so devices don't create duplicates).
+// Every space gets its backing list once; spaces added in later versions appear on existing accounts too
 function ensureSpaces() {
-  if (state.settings.spacesInit) return false;
+  let changed = false;
   for (const sp of SPACES) {
     if (spaceList(sp.id)) continue;
-    const byName = state.lists.find(l => !l.space && sp.aliases.includes(l.name.trim().toLowerCase()));
+    const byName = state.lists.find(l => !l.space && !l.project && sp.aliases.includes(l.name.trim().toLowerCase()));
     if (byName) byName.space = sp.id;
     else if (!getList('space-' + sp.id)) state.lists.push({ id: 'space-' + sp.id, name: sp.name, color: sp.color, space: sp.id });
+    changed = true;
   }
-  state.settings.spacesInit = true;
-  return true;
+  if (!state.settings.spacesInit) { state.settings.spacesInit = true; changed = true; }
+  return changed;
 }
 
 function seedState() {
@@ -421,9 +434,24 @@ function undo() {
   render();
   toast('Undone');
 }
+// Any task whose content changed since the snapshot gets updatedAt, so projects know their last activity
+function stampChanged() {
+  const before = undoStack[undoStack.length - 1];
+  if (!before) return;
+  const prev = new Map(JSON.parse(before).tasks.map(t => [t.id, t]));
+  const now = Date.now();
+  for (const t of state.tasks) {
+    const o = prev.get(t.id);
+    if (!o) { if (!t.updatedAt) t.updatedAt = now; continue; }
+    const { updatedAt: _a, notifiedFor: _b, collapsed: _c, ...x } = t;
+    const { updatedAt: _d, notifiedFor: _e, collapsed: _f, ...y } = o;
+    if (JSON.stringify(x) !== JSON.stringify(y)) t.updatedAt = now;
+  }
+}
 function commit(fn, opts = {}) {
   snapshot();
   fn();
+  stampChanged();
   touch();
   save();
   render(opts);
@@ -833,7 +861,9 @@ function viewModel() {
     const done = items.filter(t => t.done);
     const active = items.length - done.length;
     return {
-      title: list.name, color: list.color, list, section: list.space ? 'Spaces' : 'Lists', groupable: true, modes: ALL_MODES,
+      title: list.name, color: list.color, list, section: list.space ? 'Spaces' : isProject(list) ? (spaceList(list.project) || {}).name || 'Projects' : 'Lists', groupable: true, modes: ALL_MODES,
+      hub: list.space && (SPACES.find(s => s.id === list.space) || {}).projects ? list.space : null,
+      project: isProject(list) ? list : null,
       comingUp: upcomingSpaceEvents(list),
       subtitle: active ? `${plural(active, 'task')} to do` : 'All caught up',
       groups: groupTasks(items, groupMode()), completed: byDoneDesc(done), calTasks: items, boardTasks: items,
@@ -865,6 +895,7 @@ function viewModel() {
       const total = active.length + completed.length;
       return {
         title: 'Today', icon: 'sun', showList: true, groups, completed, modes: ['list', 'board', 'calendar'], boardTasks: [...active, ...completed],
+        projectAlerts: Freelance.alerts(SPACES.filter(s => s.projects).flatMap(s => projectsOf(s.id)), projectTasks, T),
         calTasks: top.filter(t => t.due), banner: (eventsByDate(T, T)[T] || []).filter(e => !e.personId), upNext: upNextMeetings(), panchang: T,
         subtitle: new Date().toLocaleDateString(LOCALE, { weekday: 'long', month: 'long', day: 'numeric' }),
         progress: total ? { done: completed.length, total } : null,
@@ -997,8 +1028,8 @@ function renderSidebar() {
   };
   const spaceLists = SPACES.map(s => spaceList(s.id)).filter(Boolean);
   $('#spaceSection').hidden = !spaceLists.length;
-  $('#spaceNav').innerHTML = spaceLists.map(listRow).join('');
-  $('#listNav').innerHTML = state.lists.filter(l => !spaceOf(l)).map(listRow).join('');
+  $('#spaceNav').innerHTML = spaceLists.map(l => listRow(l) + projectsOf(l.space).filter(p => Freelance.isOpen(p)).map(p => `<div class="nav-sub">${listRow(p)}</div>`).join('')).join('');
+  $('#listNav').innerHTML = state.lists.filter(l => !spaceOf(l) && !isProject(l)).map(listRow).join('');
 
   const tagCounts = {};
   state.tasks.filter(t => !t.done).forEach(t => t.tags.forEach(g => { tagCounts[g] = (tagCounts[g] || 0) + 1; }));
@@ -1198,6 +1229,9 @@ function renderList(vm) {
   if (vm.list && vm.list.space === 'aol') {
     html += `<div class="pp-bar cp-bar"><span>🗓️ Planning a course? Find the best dates by moon, festivals and your calendar</span><button class="btn ghost sm" data-action="course-planner">Plan a course</button></div>`;
   }
+  if (vm.projectAlerts && vm.projectAlerts.length) html += projectAlertStrip(vm.projectAlerts);
+  if (vm.hub) html += projectHub(vm.hub);
+  if (vm.project) html += projectHeader(vm.project);
   if (vm.list && vm.list.space === 'personal') {
     html += `<div class="pp-bar"><span>🎂 ${state.people.length ? `${peopleCount(state.people.length)} with birthdays & anniversaries` : 'Never miss a birthday — add them or import from Google Contacts'}</span><button class="btn ghost sm" data-action="people">${state.people.length ? 'Manage' : 'Add birthdays'}</button></div>`;
   }
@@ -2447,6 +2481,72 @@ function buildCourseTasks(start, f) {
   return { tasks, list, name, range, opt };
 }
 
+/* ---------- Freelance: projects, milestones, money ---------- */
+const pStatus = p => Freelance.statusOf(p.status);
+const pProgress = p => Freelance.progress(projectTasks(p.id));
+function projectCard(p) {
+  const st = pStatus(p);
+  const pr = pProgress(p);
+  const tasks = projectTasks(p.id);
+  const stale = Freelance.isStale(p, tasks);
+  const T = todayStr();
+  const due = p.due ? (p.due < T && Freelance.isOpen(p) && p.status !== 'delivered' ? `<span class="pj-due over">Overdue · ${esc(fmtShort(p.due))}</span>` : `<span class="pj-due">Due ${esc(fmtShort(p.due))}</span>`) : '';
+  const price = Number(p.price) || 0, paid = Number(p.paid) || 0;
+  const moneyBit = price ? `<span class="pj-money ${paid >= price ? 'paid' : ''}">${paid >= price ? 'Paid ' : paid ? `${Freelance.money(paid)} of ` : ''}${Freelance.money(price)}</span>` : '';
+  const next = tasks.filter(t => !t.parentId && !t.done).sort((a, b) => a.order - b.order)[0];
+  return `<article class="pj-card ${stale ? 'stale' : ''}" style="--pc:${p.color};--sc:${st.color}" data-nav="list:${p.id}" role="link" tabindex="0">
+    <header>${avatar(p.name, p.color, 'sm')}<div class="pj-title"><b>${esc(p.name)}</b><span>${esc(p.client || 'No client yet')}</span></div><span class="pj-status">${esc(st.label)}</span></header>
+    <div class="pj-bar" title="${pr.pct}% of tasks done"><span style="width:${pr.pct}%"></span></div>
+    <div class="pj-meta"><span>${pr.milestones ? `${pr.done}/${pr.milestones} milestones` : 'No milestones yet'}</span>${due}${moneyBit}</div>
+    ${stale ? `<div class="pj-flag">⚠ Quiet for ${Math.floor((Date.now() - Freelance.lastActivity(p, tasks)) / 86400000)} days</div>` : next ? `<div class="pj-next">Next: ${esc(next.title)}</div>` : ''}
+  </article>`;
+}
+function projectHub(spaceId) {
+  const all = projectsOf(spaceId);
+  const open = all.filter(Freelance.isOpen).sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
+  const closed = all.filter(p => !Freelance.isOpen(p));
+  const t = Freelance.totals(all);
+  return `<section class="pj-hub">
+    <header class="pj-hub-head">
+      <div><h2>Projects</h2><span class="muted small">${all.length ? `${plural(t.open, 'open project')} · ${Freelance.money(t.due)} to collect · ${Freelance.money(t.paid)} received` : 'Client work, software you maintain, anything with milestones'}</span></div>
+      <button class="btn primary sm" data-action="new-project" data-space="${spaceId}">${icon('plus')}<span>Project</span></button>
+    </header>
+    ${open.length ? `<div class="pj-grid">${open.map(projectCard).join('')}</div>` : `<div class="pj-empty"><p>No projects yet. Add your first client project or a piece of software you look after; each gets its own milestones, progress bar and money tracking.</p></div>`}
+    ${closed.length ? `<details class="pj-closed"><summary>${plural(closed.length, 'closed project')}</summary><div class="pj-grid">${closed.map(projectCard).join('')}</div></details>` : ''}
+  </section>`;
+}
+function projectHeader(p) {
+  const st = pStatus(p);
+  const pr = pProgress(p);
+  const price = Number(p.price) || 0, paid = Number(p.paid) || 0;
+  const facts = [
+    p.client && ['Client', p.client + (p.contact ? ` · ${p.contact}` : '')],
+    p.due && ['Due', fmtDate(p.due)],
+    price && ['Price', `${Freelance.money(price)}${paid ? ` · ${Freelance.money(paid)} received` : ''}${paid < price && (p.status === 'delivered' || p.status === 'active') ? ` · ${Freelance.money(price - paid)} to collect` : ''}`],
+    p.stack && ['Stack', p.stack],
+  ].filter(Boolean);
+  const links = [p.link && safeUrl(p.link) && `<a class="btn ghost sm" href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">${icon('link')}Site</a>`, p.repo && safeUrl(p.repo) && `<a class="btn ghost sm" href="${esc(safeUrl(p.repo))}" target="_blank" rel="noopener">${icon('link')}Repo</a>`].filter(Boolean).join('');
+  return `<section class="pj-head" style="--sc:${st.color}">
+    <div class="pj-head-top">
+      <div class="seg pj-seg" role="radiogroup" aria-label="Status">${Freelance.STATUSES.map(x => `<button class="${x.v === p.status ? 'on' : ''}" data-action="project-status" data-list="${p.id}" data-status="${x.v}" style="--sc:${x.color}" title="${esc(x.hint)}">${esc(x.label)}</button>`).join('')}</div>
+      <span class="spacer"></span>
+      ${links}
+      <button class="btn ghost sm" data-action="edit-list" data-list="${p.id}">${icon('edit')}Edit</button>
+    </div>
+    <div class="pj-bar lg" title="${pr.pct}% of tasks done"><span style="width:${pr.pct}%"></span></div>
+    <div class="pj-facts">${facts.map(([k, v]) => `<span><small>${k}</small><b>${esc(v)}</b></span>`).join('')}<span><small>Milestones</small><b>${pr.done}/${pr.milestones} done · ${pr.pct}%</b></span></div>
+    ${p.notes ? `<p class="pj-notes">${esc(p.notes)}</p>` : ''}
+  </section>`;
+}
+function projectAlertStrip(alerts) {
+  return `<section class="pj-alerts">${alerts.slice(0, 4).map(a => `<button class="pj-alert l${a.level}" data-nav="list:${a.project.id}">${avatar(a.project.name, a.project.color, 'xxs')}<b>${esc(a.project.name)}</b><span>${esc(a.text)}</span></button>`).join('')}</section>`;
+}
+function setProjectStatus(id, status) {
+  const p = getList(id);
+  if (!p || !isProject(p) || p.status === status) return;
+  commit(() => { p.status = status; p.updatedAt = Date.now(); if (status === 'paid' && Number(p.price) && !Number(p.paid)) p.paid = p.price; }, { toast: `${p.name}: ${Freelance.statusOf(status).label}` });
+}
+
 function calendarFilters() {
   const scope = eventScope();
   const isCalView = ui.view.type === 'smart' && ui.view.id === 'calendar';
@@ -3012,12 +3112,27 @@ function confirmDialog({ title, message, confirm = 'Delete', danger = true }) {
   });
 }
 
-function editList(listId) {
-  const l = listId ? getList(listId) : { name: '', color: LIST_COLORS[state.lists.length % LIST_COLORS.length] };
+function editList(listId, projectSpace = null) {
+  const l = listId ? getList(listId) : { name: '', color: LIST_COLORS[state.lists.length % LIST_COLORS.length], project: projectSpace || undefined, status: 'lead' };
   const count = listId ? state.tasks.filter(t => t.listId === listId).length : 0;
+  const proj = isProject(l);
+  const field = (name, label, attrs = '', value = l[name] || '') => `<label class="lbl">${label}<input name="${name}" value="${esc(String(value))}" ${attrs} autocomplete="off"></label>`;
+  const projectFields = !proj ? '' : `
+      <div class="pj-form">
+        ${field('client', 'Client', 'maxlength="80" placeholder="Company or person"')}
+        ${field('contact', 'Contact', 'maxlength="120" placeholder="Phone or email"')}
+        <label class="lbl">Status<select name="status">${Freelance.STATUSES.map(x => `<option value="${x.v}" ${x.v === (l.status || 'lead') ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></label>
+        ${field('due', 'Deadline', 'type="date"')}
+        ${field('price', 'Agreed price (₹)', 'type="number" min="0" step="1" inputmode="numeric"')}
+        ${field('paid', 'Received so far (₹)', 'type="number" min="0" step="1" inputmode="numeric"')}
+        ${field('link', 'Live site / app', 'type="url" placeholder="https://"')}
+        ${field('repo', 'Code / repo', 'type="url" placeholder="https://github.com/…"')}
+        ${field('stack', 'Tech stack', 'maxlength="120" placeholder="e.g. Flutter, Firebase"')}
+        <label class="lbl pj-wide">Notes<textarea name="notes" rows="2" maxlength="2000" placeholder="Scope, agreements, logins to remember…">${esc(l.notes || '')}</textarea></label>
+      </div>`;
   openModal(`
-    <form class="modal-card" id="listForm">
-      <h2>${listId ? 'List settings' : 'Create a list'}</h2>
+    <form class="modal-card ${proj ? 'wide' : ''}" id="listForm">
+      <h2>${listId ? (proj ? 'Project settings' : 'List settings') : proj ? 'New project' : 'Create a list'}</h2>
       <div class="list-preview">${avatar(l.name || 'New', l.color, 'lg')}<span class="lp-name">${esc(l.name || 'New list')}</span></div>
       <label class="lbl">Name
         <input name="name" value="${esc(l.name)}" required maxlength="60" placeholder="e.g. Marketing, Groceries, Side project" autofocus autocomplete="off">
@@ -3025,7 +3140,8 @@ function editList(listId) {
       <div class="lbl">Color
         <div class="swatches">${LIST_COLORS.map(c => `<label class="swatch"><input type="radio" name="color" value="${c}" ${c === l.color ? 'checked' : ''}><span style="--c:${c}"></span></label>`).join('')}</div>
       </div>
-      ${listId ? `<label class="check-row"><input type="checkbox" name="isDefault" ${defaultListId() === listId ? 'checked' : ''}> Default list for new tasks</label>` : ''}
+      ${projectFields}
+      ${listId && !proj ? `<label class="check-row"><input type="checkbox" name="isDefault" ${defaultListId() === listId ? 'checked' : ''}> Default list for new tasks</label>` : ''}
       <div class="modal-actions">
         ${listId && state.lists.length > 1 ? `<button type="button" class="btn ghost danger-text" data-m="delete">${icon('trash')}Delete</button>` : ''}
         <span class="spacer"></span>
@@ -3048,14 +3164,26 @@ function editList(listId) {
       const name = String(fd.get('name')).trim();
       if (!name) return;
       const color = String(fd.get('color') || l.color);
+      const projectBits = () => {
+        if (!proj) return {};
+        const o = {};
+        for (const k of ['client', 'contact', 'status', 'due', 'link', 'repo', 'stack', 'notes']) o[k] = String(fd.get(k) || '').trim() || undefined;
+        for (const k of ['price', 'paid']) o[k] = fd.get(k) !== '' && fd.get(k) != null ? Math.max(0, Math.round(Number(fd.get(k)) || 0)) : undefined;
+        if (o.link) o.link = safeUrl(o.link) || undefined;
+        if (o.repo) o.repo = safeUrl(o.repo) || undefined;
+        o.updatedAt = Date.now();
+        return o;
+      };
       if (listId) {
         commit(() => {
           l.name = name; l.color = color;
+          if (proj) { const o = projectBits(); for (const k of Object.keys(o)) { if (o[k] === undefined) delete l[k]; else l[k] = o[k]; } }
           if (fd.get('isDefault')) state.settings.defaultListId = listId;
         });
         closeModal();
       } else {
-        const nl = { id: uid(), name, color };
+        const nl = { id: uid(), name, color, ...(proj ? { project: l.project, createdAt: Date.now(), ...projectBits() } : {}) };
+        Object.keys(nl).forEach(k => { if (nl[k] === undefined) delete nl[k]; });
         commit(() => { state.lists.push(nl); });
         closeModal();
         navigate(`list:${nl.id}`);
@@ -3516,6 +3644,8 @@ async function handleAction(a, el, id) {
     case 'toggle-sidebar': document.body.classList.toggle('sidebar-open'); break;
     case 'close-sidebar': document.body.classList.remove('sidebar-open'); break;
     case 'add-list': editList(null); break;
+    case 'new-project': editList(null, el.dataset.space); break;
+    case 'project-status': setProjectStatus(el.dataset.list, el.dataset.status); break;
     case 'edit-list': editList(el.dataset.list); break;
     case 'settings': openSettings(); break;
     case 'account': openAccount(); break;
@@ -4043,6 +4173,7 @@ const aiWhen = t => [t.due && dayLabel(t.due), t.time && fmtTime(t.time)].filter
 function aiMutate(ctx, fn) {
   if (!ctx.snap) { snapshot(); ctx.snap = true; }
   fn();
+  stampChanged();
   touch();
   save();
   ctx.changes++;
@@ -4064,7 +4195,8 @@ const AI_TOOLS = [
       return {
         result: {
           today: T,
-          lists: state.lists.map(l => ({ id: l.id, name: l.name, space: l.space || null, open_tasks: top.filter(t => t.listId === l.id).length })),
+          lists: state.lists.map(l => ({ id: l.id, name: l.name, space: l.space || null, ...(isProject(l) && { project: true, client: l.client || null, status: l.status, due: l.due || null, price: l.price || 0, paid: l.paid || 0, progress: pProgress(l).pct + '%' }), open_tasks: top.filter(t => t.listId === l.id).length })),
+          project_alerts: Freelance.alerts(SPACES.filter(s => s.projects).flatMap(s => projectsOf(s.id)), projectTasks, T).map(a => `${a.project.name}: ${a.text}`),
           default_list: (getList(defaultListId()) || {}).name,
           counts: { overdue: top.filter(t => t.due && t.due < T).length, due_today: top.filter(t => t.due === T).length, next_7_days: top.filter(t => t.due > T && t.due <= week).length, no_date: top.filter(t => !t.due).length, completed_today: state.stats.completions[T] || 0 },
           habits_today: activePractices().filter(p => scheduledOn(p, T)).map(p => ({ name: p.name, done: isDone(T, p.id), ...(p.type === 'count' && { progress: `${countOf(T, p)}/${p.target} ${p.unit || ''}`.trim() }) })),
@@ -4321,6 +4453,42 @@ const AI_TOOLS = [
       const { tasks, list, name, range } = buildCourseTasks(i.start, f);
       aiMutate(ctx, () => { state.tasks.push(...tasks); ui.flashId = tasks[0].id; });
       return { result: { list: list.name, created: tasks.map(aiTask) }, summary: `Scheduled ${name} · ${range}${f.checklist ? ' + organiser checklist' : ''}`, changed: true };
+    },
+  },
+  {
+    name: 'update_project',
+    description: 'Create or update a freelance project (a client job or a piece of software with milestones, deadline and money). Use when the user mentions a client project, a quote, a payment received or a project status change. Milestones are just tasks in the project list (use create_tasks with list = project name).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Existing project id (from get_overview); omit to create' },
+        name: { type: 'string', maxLength: 80 },
+        client: { type: 'string', maxLength: 80 },
+        contact: { type: 'string', maxLength: 120 },
+        status: { type: 'string', enum: ['lead', 'proposal', 'active', 'delivered', 'paid', 'closed'] },
+        due: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+        price: { type: 'number', minimum: 0 },
+        paid: { type: 'number', minimum: 0, description: 'Total received so far' },
+        link: { type: 'string' }, repo: { type: 'string' }, stack: { type: 'string', maxLength: 120 },
+        notes: { type: 'string', maxLength: 2000 },
+      },
+      additionalProperties: false,
+    },
+    run(i, ctx) {
+      const space = SPACES.find(s => s.projects);
+      if (!spaceList(space.id)) throw new Error('The Freelance space is not set up');
+      let p = i.id ? getList(i.id) : null;
+      if (i.id && !(p && isProject(p))) throw new Error(`No project with id ${i.id}`);
+      if (!p && !i.name) throw new Error('A new project needs a name');
+      aiMutate(ctx, () => {
+        if (!p) { p = { id: uid(), name: i.name.trim(), color: LIST_COLORS[state.lists.length % LIST_COLORS.length], project: space.id, status: 'lead', createdAt: Date.now() }; state.lists.push(p); }
+        for (const k of ['name', 'client', 'contact', 'status', 'stack', 'notes']) if (i[k] != null) p[k] = String(i[k]).trim();
+        if ('due' in i) { if (i.due) p.due = i.due; else delete p.due; }
+        for (const k of ['price', 'paid']) if (i[k] != null) p[k] = Math.round(i[k]);
+        for (const k of ['link', 'repo']) if (i[k]) p[k] = safeUrl(i[k]) || p[k];
+        p.updatedAt = Date.now();
+      });
+      return { result: { id: p.id, name: p.name, status: p.status, client: p.client || null, due: p.due || null, price: p.price || 0, paid: p.paid || 0 }, summary: `${i.id ? 'Updated' : 'Added'} project “${p.name}”`, changed: true };
     },
   },
   {
@@ -4670,6 +4838,7 @@ function chooseFirstSync() {
 
 const SYNC_LABELS = {
   unconfigured: ['off', 'Sync not set up'],
+  restoring: ['busy', 'Connecting…'],
   'signed-out': ['off', 'Sign in to sync'],
   idle: ['busy', 'Connecting…'],
   syncing: ['busy', 'Syncing…'],
@@ -4699,8 +4868,12 @@ function renderGate() {
   const locked = gateOn() && !(S && S.user);
   document.body.classList.toggle('gated', locked);
   el.hidden = !locked;
-  if (!locked) { el.innerHTML = ''; return; }
-  const checking = S.status === 'idle' || S.status === 'syncing';
+  if (!locked) { el.innerHTML = ''; delete el.dataset.gate; return; }
+  const checking = S.status === 'restoring';
+  // Redraw only when what the wall shows changes, so a status tick mid-typing never wipes the form
+  const key = checking ? 'checking' : 'form';
+  if (el.dataset.gate === key) return;
+  el.dataset.gate = key;
   const google = S.canUseGoogle();
   el.innerHTML = `<div class="gate-card" role="dialog" aria-labelledby="gateTitle">
     <span class="ws-avatar lg" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -4941,5 +5114,9 @@ if (window.DoableSync) {
 
 if (!isNative && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+// Local development only: lets browser tests drive the app (never on the real site or in the APK)
+if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+  window.__doable = { get state() { return state; }, get ui() { return ui; }, navigate, getList, toggleComplete, projectTasks, syncRecords, renderGate, render };
 }
 })();

@@ -224,7 +224,7 @@
 
   const Sync = {
     configured: false,
-    status: 'unconfigured', // unconfigured | signed-out | syncing | synced | offline | error | idle
+    status: 'unconfigured', // unconfigured | restoring | signed-out | syncing | synced | offline | error | idle
     user: null,
     lastSync: 0,
     error: null,
@@ -289,7 +289,7 @@
     const app = fb.initializeApp(cfg.firebase);
     auth = fb.getAuth(app);
     db = fb.getFirestore(app);
-    publish('signed-out');
+    publish('restoring'); // Firebase reads the saved session before its first callback; the login wall waits quietly
     fb.onAuthStateChanged(auth, u => {
       const user = u ? { id: u.uid, email: u.email, providers: u.providerData.map(p => p.providerId) } : null;
       if ((user && user.id) !== (Sync.user && Sync.user.id)) {
