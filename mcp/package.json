@@ -1,0 +1,1 @@
+{"name":"doable-mcp","private":true,"version":"1.0.0","type":"module","description":"MCP server that lets Claude read and update your Doable (tasks, projects, habits).","bin":{"doable-mcp":"server.mjs"},"engines":{"node":">=20"},"dependencies":{"@modelcontextprotocol/sdk":"^1.32.2","firebase":"^13.1.0","zod":"^3.25.76"}}

@@ -33,3 +33,4 @@ Thumbs.db
 
 # Firebase deploy cache
 .firebase/
+mcp/node_modules/
