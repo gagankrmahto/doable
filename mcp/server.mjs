@@ -14,7 +14,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import '../web/issues.js'; // sets globalThis.Issues (shared with the app)
+import '../web/timelog.js';
 const Issues = globalThis.Issues;
+const TimeLog = globalThis.TimeLog;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -101,13 +103,14 @@ const view = t => ({
   ...(t.due && { due: t.due }), ...(t.time && { time: t.time }), ...(t.priority && { priority: PRIO_NAME[t.priority] }),
   ...(t.tags && t.tags.length && { tags: t.tags }), ...(t.starred && { starred: true }), ...(t.parentId && { parent_id: t.parentId }),
   ...(t.notes && { notes: t.notes.slice(0, 300) }), ...(t.type === 'meeting' && { meeting: { minutes: t.duration || 30, link: t.link || null } }),
+  ...(TimeLog.logsOf(t).length && { time: { hours: TimeLog.hours(TimeLog.logsOf(t)), ...(TimeLog.running(t) && { running: true }) } }),
 });
 const projects = () => lists().filter(l => l.project);
 const progress = p => { const ts = tasks().filter(t => t.listId === p.id); const top = ts.filter(t => !t.parentId); return { milestones: top.length, done: top.filter(t => t.done).length, pct: ts.length ? Math.round(ts.filter(t => t.done).length / ts.length * 100) : 0 }; };
 const issuesOf = pid => [...records].filter(([k]) => k.startsWith('issue:')).map(([, v]) => v.data).filter(i => i.projectId === pid);
 const findProject = name => { const n = String(name || '').trim().toLowerCase(); return projects().find(p => p.id === name) || projects().find(p => p.name.toLowerCase() === n) || projects().find(p => p.name.toLowerCase().includes(n)) || null; };
 const issueView = x => ({ id: x.id, type: x.type, title: x.title, status: x.status, ...(x.type === 'bug' ? { severity: x.severity } : { priority: x.priority }), ...(x.reporter && { reporter: x.reporter }), ...(x.version && { found_in: x.version }), ...(x.fixVersion && { fixed_in: x.fixVersion }), ...(x.link && { link: x.link }), ...(x.desc && { details: x.desc.slice(0, 600) }), updated: new Date(x.updatedAt).toISOString().slice(0, 10) });
-const projectView = p => ({ id: p.id, name: p.name, client: p.client || null, status: p.status || 'lead', due: p.due || null, price: p.price || 0, paid: p.paid || 0, ...(p.link && { link: p.link }), ...(p.repo && { repo: p.repo }), ...(p.stack && { stack: p.stack }), ...(p.notes && { notes: p.notes }), progress: progress(p), issues: (() => { const sm = Issues.summary(issuesOf(p.id)); return { open_bugs: sm.openBugs, open_features: sm.openFeatures, critical: sm.critical, resolved: sm.fixed + sm.closed }; })() });
+const projectView = p => ({ id: p.id, name: p.name, client: p.client || null, status: p.status || 'lead', due: p.due || null, price: p.price || 0, paid: p.paid || 0, ...(p.link && { link: p.link }), ...(p.repo && { repo: p.repo }), ...(p.stack && { stack: p.stack }), ...(p.notes && { notes: p.notes }), progress: progress(p), hours_logged: TimeLog.hours(tasks().filter(t => t.listId === p.id).flatMap(TimeLog.logsOf)), issues: (() => { const sm = Issues.summary(issuesOf(p.id)); return { open_bugs: sm.openBugs, open_features: sm.openFeatures, critical: sm.critical, resolved: sm.fixed + sm.closed }; })() });
 const text = v => ({ content: [{ type: 'text', text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
 const fail = m => ({ content: [{ type: 'text', text: m }], isError: true });
 const D = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD');
@@ -131,6 +134,7 @@ server.registerTool('get_overview', {
     counts: { overdue: top.filter(t => t.due && t.due < T).length, due_today: top.filter(t => t.due === T).length, next_7_days: top.filter(t => t.due > T && t.due <= shift(T, 7)).length, no_date: top.filter(t => !t.due).length },
     projects: projects().map(projectView),
     habits: practices().map(p => ({ id: p.id, name: p.name, type: p.type || 'check', ...(p.type === 'count' && { target: p.target, unit: p.unit }) })),
+    time: (() => { const tt = TimeLog.totals(tasks(), { weekStartsOn: settings().weekStart ?? 1 }); return { today: TimeLog.fmt(tt.today), this_week: TimeLog.fmt(tt.week), ...(tt.running && { running: { id: tt.running.id, title: tt.running.title } }) }; })(),
   });
 });
 
@@ -325,6 +329,32 @@ server.registerTool('update_issue', {
   const after = Issues.change(rec.data, patch, 'claude');
   await write([{ id: 'issue:' + after.id, kind: 'issue', data: after }]);
   return text({ updated: issueView(after) });
+});
+
+server.registerTool('track_time', {
+  title: 'Track time',
+  description: 'Start or stop the timer on a task, or log minutes already worked. One timer at a time; starting another stops it.',
+  inputSchema: { action: z.enum(['start', 'stop', 'add']), task_id: z.string().optional().describe('For start/add; stop defaults to the running timer'), minutes: z.number().int().min(1).max(1440).optional(), note: z.string().max(120).optional() },
+}, async i => {
+  try { await connect(); } catch (e) { return fail(e.message); }
+  const t = i.task_id ? getTask(i.task_id) : tasks().find(x => TimeLog.running(x));
+  if (!t) return fail(i.task_id ? `No task with id ${i.task_id}` : 'No timer is running');
+  const rows = [];
+  let n;
+  if (i.action === 'start') {
+    const cur = tasks().find(x => TimeLog.running(x));
+    if (cur && cur.id !== t.id) { const stopped = TimeLog.stop(cur); rows.push({ id: 'task:' + cur.id, kind: 'task', data: { ...stopped, updatedAt: Date.now() } }); }
+    n = TimeLog.start(t); if (n.done) { n.done = false; n.status = 'todo'; n.doneAt = null; }
+  } else if (i.action === 'stop') {
+    if (!TimeLog.running(t)) return fail('That task has no running timer');
+    n = TimeLog.stop(t, Date.now(), i.note);
+  } else {
+    if (!i.minutes) return fail('minutes is required for add');
+    n = TimeLog.add(t, i.minutes, { note: i.note });
+  }
+  rows.push({ id: 'task:' + n.id, kind: 'task', data: { ...n, updatedAt: Date.now() } });
+  await write(rows);
+  return text({ task: view(n), total: TimeLog.fmt(TimeLog.ms(TimeLog.logsOf(n))) });
 });
 
 server.registerTool('log_habit', {

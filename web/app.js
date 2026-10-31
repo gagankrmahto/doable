@@ -142,6 +142,7 @@ function newTask(o = {}) {
     status: 'todo', starred: false, tags: [], repeat: null, remind: null, myDay: null, done: false, doneAt: null,
     createdAt: Date.now(), order: 0, collapsed: false, notifiedFor: null,
     type: 'task', link: null, duration: null, // meetings: call link + length in minutes
+    logs: [], // time tracking: [{ s, e?, n? }] start ms, end ms, note; no `e` = timer running
   }, o);
 }
 
@@ -224,7 +225,7 @@ const SPACES = [
   { id: 'freelance', name: 'Freelance', color: '#8e4ec6', aliases: ['freelance', 'clients', 'projects'], projects: true },
 ];
 // Fields a project (a list inside the Freelance space) carries beyond a plain list
-const PROJECT_FIELDS = ['client', 'contact', 'status', 'due', 'price', 'paid', 'link', 'repo', 'stack', 'notes', 'createdAt', 'updatedAt', 'share'];
+const PROJECT_FIELDS = ['client', 'contact', 'status', 'due', 'price', 'paid', 'rate', 'link', 'repo', 'stack', 'notes', 'createdAt', 'updatedAt', 'share'];
 const listFrom = l => {
   const out = { id: String(l.id), name: String(l.name || 'Untitled'), color: l.color || LIST_COLORS[0] };
   if (SPACES.some(s => s.id === l.space)) out.space = l.space;
@@ -1110,6 +1111,7 @@ function renderHeader(vm) {
       ${vm.subtitle ? `<span class="crumb-sub">${esc(vm.subtitle)}</span>` : ''}
       <span class="spacer"></span>
       ${vm.progress ? `<div class="mini-progress" title="${vm.progress.done} of ${vm.progress.total} done"><div class="bar"><span style="width:${pct}%"></span></div><b>${pct}%</b></div>` : ''}
+      ${runningPill()}
       <button class="ai-btn" data-action="assistant" title="Ask Claude about your tasks, calendar and habits" aria-label="Ask Claude">${icon('sparkles')}<span>Ask Claude</span></button>
       <button class="icon-btn sm" data-action="view-menu" title="More options" aria-label="More options">${icon('more')}</button>
     </div>
@@ -1229,7 +1231,7 @@ function renderList(vm) {
   const hasActive = vm.groups.some(g => g.tasks.length);
   let html = '';
   if (vm.upNext && vm.upNext.length) html += upNextBanner(vm.upNext);
-  if (vm.panchang) html += birthdayStrip(vm.panchang) + panchangStrip(vm.panchang) + sadhanaStrip();
+  if (vm.panchang) html += birthdayStrip(vm.panchang) + panchangStrip(vm.panchang) + sadhanaStrip() + hoursStrip();
   if (vm.list && vm.list.space === 'aol') {
     html += `<div class="pp-bar cp-bar"><span>🗓️ Planning a course? Find the best dates by moon, festivals and your calendar</span><button class="btn ghost sm" data-action="course-planner">Plan a course</button></div>`;
   }
@@ -1302,6 +1304,7 @@ function taskRow(t, vm, depth = 0) {
   if (!t.due && t.myDay === T && !t.done) meta.push(`<span class="chip today">${icon('sun')}My Day</span>`);
   if (t.notes.trim()) meta.push(`<span class="chip" title="${esc(trunc(t.notes, 120))}">${icon('note')}</span>`);
   if (t.remind != null && t.due && !t.done) meta.push(`<span class="chip" title="Reminder set">${icon('bell')}</span>`);
+  if (!t.parentId || TimeLog.logsOf(t).length) { const tc = timerChip(t, true); if (tc) meta.push(tc); }
   t.tags.forEach(g => meta.push(`<button class="tag-chip" data-nav="tag:${esc(g)}">${esc(g)}</button>`));
 
   const extra = vm.showList
@@ -2501,7 +2504,7 @@ function projectCard(p) {
   return `<article class="pj-card ${stale ? 'stale' : ''}" style="--pc:${p.color};--sc:${st.color}" data-nav="list:${p.id}" role="link" tabindex="0">
     <header>${avatar(p.name, p.color, 'sm')}<div class="pj-title"><b>${esc(p.name)}</b><span>${esc(p.client || 'No client yet')}</span></div><span class="pj-status">${esc(st.label)}</span></header>
     <div class="pj-bar" title="${pr.pct}% of tasks done"><span style="width:${pr.pct}%"></span></div>
-    <div class="pj-meta"><span>${pr.milestones ? `${pr.done}/${pr.milestones} milestones` : 'No milestones yet'}</span>${issueBadge(p.id)}${due}${moneyBit}</div>
+    <div class="pj-meta"><span>${pr.milestones ? `${pr.done}/${pr.milestones} milestones` : 'No milestones yet'}</span>${issueBadge(p.id)}${(() => { const tt = projectTime(p); return tt.ms ? `<span title="Time logged">${icon('clock')}${TimeLog.fmt(tt.ms)}</span>` : ''; })()}${due}${moneyBit}</div>
     ${stale ? `<div class="pj-flag">⚠ Quiet for ${Math.floor((Date.now() - Freelance.lastActivity(p, tasks)) / 86400000)} days</div>` : next ? `<div class="pj-next">Next: ${esc(next.title)}</div>` : ''}
   </article>`;
 }
@@ -2531,6 +2534,7 @@ function projectHeader(p) {
     p.due && ['Due', fmtDate(p.due)],
     price && ['Price', `${Freelance.money(price)}${paid ? ` · ${Freelance.money(paid)} received` : ''}${paid < price && (p.status === 'delivered' || p.status === 'active') ? ` · ${Freelance.money(price - paid)} to collect` : ''}`],
     p.stack && ['Stack', p.stack],
+    (() => { const tt = projectTime(p); return tt.ms ? ['Time', `${TimeLog.fmt(tt.ms)} total · ${TimeLog.fmt(tt.week)} this week${p.rate ? ` · ${Freelance.money(Math.round((tt.ms / 3600000) * p.rate))} at ${Freelance.money(p.rate)}/h` : ''}`] : null; })(),
   ].filter(Boolean);
   const links = [p.link && safeUrl(p.link) && `<a class="btn ghost sm" href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">${icon('link')}Site</a>`, p.repo && safeUrl(p.repo) && `<a class="btn ghost sm" href="${esc(safeUrl(p.repo))}" target="_blank" rel="noopener">${icon('link')}Repo</a>`].filter(Boolean).join('');
   return `<section class="pj-head" style="--sc:${st.color}">
@@ -2566,7 +2570,7 @@ function shareSnapshot(l) {
     const o = { name: x.name, color: x.color, tasks: top.map(t => ({ ...taskOut(t), subtasks: ts.filter(k => k.parentId === t.id).sort((a, b) => a.order - b.order).map(taskOut) })) };
     if (isProject(x)) {
       const iss = Issues.sort(issuesOf(x.id)).map(i => ({ type: i.type, title: i.title, status: Issues.statusOf(i.status).label, open: Issues.isOpen(i), ...(i.type === 'bug' ? { severity: i.severity } : { priority: i.priority }), ...(i.fixVersion && { fixVersion: i.fixVersion }), ...(opts.notes && i.desc && { desc: i.desc.slice(0, 2000) }), updatedAt: i.updatedAt }));
-      Object.assign(o, { issues: iss, issueSummary: Issues.summary(issuesOf(x.id)), status: Freelance.statusOf(x.status).label, ...(x.client && { client: x.client }), ...(x.due && { due: x.due }), ...(x.stack && { stack: x.stack }), ...(x.link && { link: x.link }), ...(x.repo && { repo: x.repo }), progress: Freelance.progress(ts), ...(opts.notes && x.notes && { notes: x.notes }), ...(opts.money && x.price && { price: x.price, paid: x.paid || 0 }) });
+      Object.assign(o, { issues: iss, issueSummary: Issues.summary(issuesOf(x.id)), status: Freelance.statusOf(x.status).label, ...(x.client && { client: x.client }), ...(x.due && { due: x.due }), ...(x.stack && { stack: x.stack }), ...(x.link && { link: x.link }), ...(x.repo && { repo: x.repo }), progress: Freelance.progress(ts), ...(opts.notes && x.notes && { notes: x.notes }), ...(opts.money && x.price && { price: x.price, paid: x.paid || 0 }), ...(opts.money && projectTime(x).ms && { hours: TimeLog.hours(ts.flatMap(TimeLog.logsOf)) }) });
     }
     return o;
   };
@@ -2658,6 +2662,102 @@ function openShareDialog(listId) {
       try { await startShare(l, pass, opts); openShareDialog(listId); toast(on ? 'Passcode changed' : `Sharing ${l.name}`); } catch (err) { say(err.message || 'Could not publish'); }
     });
   });
+}
+
+/* ---------- Time tracking ---------- */
+const runningTask = () => state.tasks.find(t => TimeLog.running(t)) || null;
+const taskHours = t => TimeLog.ms(TimeLog.logsOf(t));
+function startTimer(id) {
+  const t = getTask(id);
+  if (!t || TimeLog.running(t)) return;
+  const cur = runningTask();
+  commit(() => {
+    if (cur) Object.assign(cur, TimeLog.stop(cur)); // one timer at a time
+    Object.assign(t, TimeLog.start(t));
+    if (t.done) reopenTask(t);
+  });
+  toast(`⏱ Timing “${trunc(t.title, 40)}”${cur ? ` · stopped “${trunc(cur.title, 24)}”` : ''}`);
+  tickTimer();
+}
+function stopTimer(id, note) {
+  const t = getTask(id);
+  if (!t || !TimeLog.running(t)) return;
+  const count = TimeLog.logsOf(t).length;
+  commit(() => { Object.assign(t, TimeLog.stop(t, Date.now(), note)); });
+  const logs = TimeLog.logsOf(t);
+  const kept = logs.length === count; // a timer under 30 s is dropped by TimeLog.stop
+  toast(kept ? `Logged ${TimeLog.fmt(logs[logs.length - 1].e - logs[logs.length - 1].s)} on “${trunc(t.title, 40)}”` : 'Timer stopped (under 30 s, not logged)', { undo: true });
+}
+function timerChip(t, compact) {
+  const r = TimeLog.running(t);
+  const total = taskHours(t);
+  if (r) return `<button class="chip timer on" data-action="timer-stop" title="Stop timer">${icon('clock')}<span data-tick="${r.s}">${TimeLog.clock(Date.now() - r.s)}</span></button>`;
+  if (t.done) return total ? `<span class="chip" title="Time logged">${icon('clock')}${TimeLog.fmt(total)}</span>` : '';
+  return `<button class="chip timer" data-action="timer-start" title="Start timer">${icon('clock')}${total ? TimeLog.fmt(total) : compact ? '' : 'Start'}</button>`;
+}
+// Top-bar pill for the running timer; the seconds tick without a full redraw
+function runningPill() {
+  const t = runningTask();
+  if (!t) return '';
+  const r = TimeLog.running(t);
+  return `<button class="run-pill" data-action="timer-open" data-id="${t.id}" title="Timer running — click to open, ■ to stop"><i></i><span data-tick="${r.s}">${TimeLog.clock(Date.now() - r.s)}</span><b>${esc(trunc(t.title, 26))}</b><em data-action="timer-stop" data-id="${t.id}" title="Stop">■</em></button>`;
+}
+let tickHandle = 0;
+function tickTimer() {
+  clearInterval(tickHandle);
+  if (!runningTask()) return;
+  tickHandle = setInterval(() => {
+    const els = document.querySelectorAll('[data-tick]');
+    if (!els.length) return;
+    const now = Date.now();
+    els.forEach(el => { el.textContent = TimeLog.clock(now - Number(el.dataset.tick)); });
+  }, 1000);
+}
+function timeRow(t) {
+  const logs = TimeLog.logsOf(t);
+  const r = TimeLog.running(t);
+  const total = TimeLog.ms(logs);
+  const done = logs.filter(l => l.e).slice().reverse();
+  return `<div class="prop">
+    <label>${icon('clock')}Time</label>
+    <div class="prop-val col">
+      <div class="row gap wrap">
+        ${r ? `<button class="btn primary sm" data-d="timer-stop">■ Stop · <span data-tick="${r.s}">${TimeLog.clock(Date.now() - r.s)}</span></button>` : `<button class="btn ghost sm" data-d="timer-start">${icon('clock')}Start timer</button>`}
+        <button class="btn ghost sm" data-d="time-add">${icon('plus')}Add time</button>
+        ${total ? `<span class="muted small">${TimeLog.fmt(total)} total</span>` : ''}
+      </div>
+      ${done.length ? `<ul class="tl-list">${done.slice(0, 8).map(l => `<li><span>${esc(new Date(l.s).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' }))} · ${esc(clock(new Date(l.s)))}–${esc(clock(new Date(l.e)))}</span><b>${TimeLog.fmt(l.e - l.s)}</b>${l.n ? `<em>${esc(l.n)}</em>` : ''}<button class="icon-btn xs" data-d="time-remove" data-i="${logs.indexOf(l)}" aria-label="Remove">${icon('x')}</button></li>`).join('')}${done.length > 8 ? `<li class="muted small">and ${done.length - 8} more</li>` : ''}</ul>` : ''}
+    </div>
+  </div>`;
+}
+async function addTimeDialog(id) {
+  const t = getTask(id);
+  if (!t) return;
+  openModal(`
+    <form class="modal-card" id="timeForm">
+      <h2>Add time to “${esc(trunc(t.title, 40))}”</h2>
+      <div class="pj-form">
+        <label class="lbl">Minutes<input name="minutes" type="number" min="1" max="1440" step="1" value="30" required autofocus></label>
+        <label class="lbl">Ended at<input name="end" type="datetime-local" value="${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}"></label>
+        <label class="lbl pj-wide">Note<input name="note" maxlength="120" placeholder="What you worked on (optional)"></label>
+      </div>
+      <div class="modal-actions"><span class="spacer"></span><button type="button" class="btn ghost" data-m="cancel">Cancel</button><button type="submit" class="btn primary">Add</button></div>
+    </form>`, m => {
+    m.querySelector('form').addEventListener('submit', e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const minutes = Math.max(1, Math.min(1440, Math.round(Number(fd.get('minutes')) || 0)));
+      const end = fd.get('end') ? new Date(String(fd.get('end'))).getTime() : Date.now();
+      commit(() => { Object.assign(t, TimeLog.add(t, minutes, { end: Number.isFinite(end) ? end : Date.now(), note: String(fd.get('note') || '').trim() })); }, { toast: `Added ${TimeLog.fmt(minutes * 60000)}` });
+      closeModal();
+    });
+  });
+}
+const projectTime = p => TimeLog.totals(projectTasks(p.id), { weekStartsOn: state.settings.weekStart });
+function hoursStrip() {
+  const tot = TimeLog.totals(state.tasks, { weekStartsOn: state.settings.weekStart });
+  if (!tot.today && !tot.week) return '';
+  return `<div class="pp-bar tl-bar"><span>${icon('clock')} ${TimeLog.fmt(tot.today)} logged today · ${TimeLog.fmt(tot.week)} this week</span>${tot.running ? `<span class="muted small">⏱ ${esc(trunc(tot.running.title, 30))}</span>` : ''}</div>`;
 }
 
 /* ---------- Issues: bugs, feature requests and chores on a project ---------- */
@@ -2961,6 +3061,7 @@ function renderDetails() {
               <button class="prop-btn" data-d="prio-menu" ${t.priority ? `style="--pc:${p.color}"` : ''}>${icon(t.priority ? 'flagFill' : 'flag', t.priority ? 'pc' : '')}<span>${t.priority ? p.label : 'Set priority'}</span>${icon('chevronDown', 'chev')}</button>
             </div>
           </div>
+          ${timeRow(t)}
           ${!t.parentId ? `
           <div class="prop">
             <label for="d-list">${icon('folder')}List</label>
@@ -3083,6 +3184,10 @@ function bindDetails() {
         break;
       }
       case 'join': openLink(t.link); break;
+      case 'timer-start': startTimer(t.id); break;
+      case 'timer-stop': stopTimer(t.id); break;
+      case 'time-add': addTimeDialog(t.id); break;
+      case 'time-remove': commit(() => { Object.assign(t, TimeLog.remove(t, +b.dataset.i)); }, { toast: 'Time entry removed' }); break;
       case 'copy-link':
         navigator.clipboard?.writeText(t.link).then(() => toast('Link copied'), () => toast('Couldn’t copy — select the link and copy it'));
         break;
@@ -3340,6 +3445,7 @@ function editList(listId, projectSpace = null) {
         ${field('due', 'Deadline', 'type="date"')}
         ${field('price', 'Agreed price (₹)', 'type="number" min="0" step="1" inputmode="numeric"')}
         ${field('paid', 'Received so far (₹)', 'type="number" min="0" step="1" inputmode="numeric"')}
+        ${field('rate', 'Hourly rate (₹, optional)', 'type="number" min="0" step="1" inputmode="numeric" placeholder="For the time estimate"')}
         ${field('link', 'Live site / app', 'type="url" placeholder="https://"')}
         ${field('repo', 'Code / repo', 'type="url" placeholder="https://github.com/…"')}
         ${field('stack', 'Tech stack', 'maxlength="120" placeholder="e.g. Flutter, Firebase"')}
@@ -3383,7 +3489,7 @@ function editList(listId, projectSpace = null) {
         if (!proj) return {};
         const o = {};
         for (const k of ['client', 'contact', 'status', 'due', 'link', 'repo', 'stack', 'notes']) o[k] = String(fd.get(k) || '').trim() || undefined;
-        for (const k of ['price', 'paid']) o[k] = fd.get(k) !== '' && fd.get(k) != null ? Math.max(0, Math.round(Number(fd.get(k)) || 0)) : undefined;
+        for (const k of ['price', 'paid', 'rate']) o[k] = fd.get(k) !== '' && fd.get(k) != null ? Math.max(0, Math.round(Number(fd.get(k)) || 0)) : undefined;
         if (o.link) o.link = safeUrl(o.link) || undefined;
         if (o.repo) o.repo = safeUrl(o.repo) || undefined;
         o.updatedAt = Date.now();
@@ -3864,6 +3970,9 @@ async function handleAction(a, el, id) {
     case 'share': openShareDialog(el.dataset.list); break;
     case 'project-status': setProjectStatus(el.dataset.list, el.dataset.status); break;
     case 'new-issue': openIssueEditor(el.dataset.list); break;
+    case 'timer-start': startTimer(id || el.dataset.id); break;
+    case 'timer-stop': stopTimer(id || el.dataset.id); break;
+    case 'timer-open': openDetails(el.dataset.id); break;
     case 'open-issue': { const i = getIssue(el.dataset.issue); if (i) openIssueEditor(i.projectId, i.id); break; }
     case 'issue-filter': ui.issueFilter = el.dataset.f; renderMain(); break;
     case 'edit-list': editList(el.dataset.list); break;
@@ -4350,7 +4459,7 @@ How Doable works:
 - Lists hold tasks; each space is backed by a list, and there can be other lists. A task has a title, an optional due date (YYYY-MM-DD) and time (HH:MM, 24-hour), a priority (urgent, high, normal, low), a status (todo, progress, review, done), tags, notes, a star, an optional repeat, and subtasks. Meetings also have a length and an optional video-call link.
 - The calendar shows Indian festivals, Art of Living events, moon days (Purnima, Amavasya, Ekadashi, Pradosh, Shivaratri), birthdays and anniversaries, NGO days and any connected Google calendars. The panchang (sunrise, sunset, tithi, Rahu Kaal, Brahma Muhurta) follows the user's location.
 - Habits are daily practices (for example Sudarshan Kriya, meditation, drinking water) with check-ins, counts and streaks.
-- The Freelance space holds projects (client work and software the user maintains). Each has milestones (its tasks) and an issue tracker: bugs with a severity, feature requests (RFEs) and chores with a priority, moving open → in progress → fixed → verified → closed (or won't fix), with a fix version.
+- The Freelance space holds projects (client work and software the user maintains). Each has milestones (its tasks) and an issue tracker: bugs with a severity, feature requests (RFEs) and chores with a priority, moving open → in progress → fixed → verified → closed (or won't fix), with a fix version. Tasks can carry a timer and time logs; projects total the hours.
 
 How to help:
 - Each user message begins with a context line giving the current date, time, location and screen. Use it to resolve words like today, tomorrow or this Friday.
@@ -4383,6 +4492,7 @@ function aiTask(t) {
   if (t.starred) o.starred = true;
   if (t.repeat) o.repeat = repeatLabel(t.repeat);
   if (isMeeting(t)) o.meeting = { minutes: meetingMinutes(t), link: t.link || null };
+  if (TimeLog.logsOf(t).length) o.time = { hours: TimeLog.hours(TimeLog.logsOf(t)), ...(TimeLog.running(t) && { running: true }) };
   if (t.notes) o.notes = t.notes.slice(0, 280);
   if (t.parentId) o.parent_id = t.parentId;
   const kids = childrenOf(t.id);
@@ -4416,13 +4526,14 @@ const AI_TOOLS = [
       return {
         result: {
           today: T,
-          lists: state.lists.map(l => ({ id: l.id, name: l.name, space: l.space || null, ...(isProject(l) && { project: true, client: l.client || null, status: l.status, due: l.due || null, price: l.price || 0, paid: l.paid || 0, progress: pProgress(l).pct + '%', issues: (() => { const sm = Issues.summary(issuesOf(l.id)); return { open_bugs: sm.openBugs, open_features: sm.openFeatures, critical: sm.critical, resolved: sm.fixed + sm.closed }; })() }), open_tasks: top.filter(t => t.listId === l.id).length })),
+          lists: state.lists.map(l => ({ id: l.id, name: l.name, space: l.space || null, ...(isProject(l) && { project: true, client: l.client || null, status: l.status, due: l.due || null, price: l.price || 0, paid: l.paid || 0, progress: pProgress(l).pct + '%', hours_logged: TimeLog.hours(projectTasks(l.id).flatMap(TimeLog.logsOf)), issues: (() => { const sm = Issues.summary(issuesOf(l.id)); return { open_bugs: sm.openBugs, open_features: sm.openFeatures, critical: sm.critical, resolved: sm.fixed + sm.closed }; })() }), open_tasks: top.filter(t => t.listId === l.id).length })),
           project_alerts: Freelance.alerts(SPACES.filter(s => s.projects).flatMap(s => projectsOf(s.id)), projectTasks, T).map(a => `${a.project.name}: ${a.text}`),
           default_list: (getList(defaultListId()) || {}).name,
           counts: { overdue: top.filter(t => t.due && t.due < T).length, due_today: top.filter(t => t.due === T).length, next_7_days: top.filter(t => t.due > T && t.due <= week).length, no_date: top.filter(t => !t.due).length, completed_today: state.stats.completions[T] || 0 },
           habits_today: activePractices().filter(p => scheduledOn(p, T)).map(p => ({ name: p.name, done: isDone(T, p.id), ...(p.type === 'count' && { progress: `${countOf(T, p)}/${p.target} ${p.unit || ''}`.trim() }) })),
           google_calendars: gcals().map(c => c.name),
           people_with_birthdays: state.people.length,
+          time: (() => { const tt = TimeLog.totals(state.tasks, { weekStartsOn: state.settings.weekStart }); return { today: TimeLog.fmt(tt.today), this_week: TimeLog.fmt(tt.week), ...(tt.running && { running: { id: tt.running.id, title: tt.running.title } }) }; })(),
           location: currentLocation().name,
         },
       };
@@ -4766,6 +4877,24 @@ const AI_TOOLS = [
       let after;
       aiMutate(ctx, () => { after = state.issues[idx] = Issues.change(before, patch); });
       return { result: { id: after.id, title: after.title, status: after.status, ...(after.fixVersion && { fixed_in: after.fixVersion }) }, summary: i.status ? `${Issues.typeOf(after.type).emoji} “${after.title}” → ${Issues.statusOf(after.status).label}${after.fixVersion ? ` (${after.fixVersion})` : ''}` : `Updated “${after.title}”`, changed: true };
+    },
+  },
+  {
+    name: 'track_time',
+    description: 'Start or stop the timer on a task, or log minutes already worked. One timer runs at a time; starting another stops it. Use when the user says "start timing X", "stop the timer", "I spent 2 hours on X".',
+    input_schema: {
+      type: 'object',
+      properties: { action: { type: 'string', enum: ['start', 'stop', 'add'] }, task_id: { type: 'string', description: 'Needed for start and add; for stop, defaults to the running timer' }, minutes: { type: 'integer', minimum: 1, maximum: 1440, description: 'For add' }, note: { type: 'string', maxLength: 120 } },
+      required: ['action'], additionalProperties: false,
+    },
+    run(i, ctx) {
+      const t = i.task_id ? getTask(i.task_id) : runningTask();
+      if (!t) throw new Error(i.task_id ? `No task with id ${i.task_id}` : 'No timer is running');
+      if (i.action === 'start') { const cur = runningTask(); aiMutate(ctx, () => { if (cur) Object.assign(cur, TimeLog.stop(cur)); Object.assign(t, TimeLog.start(t)); if (t.done) reopenTask(t); }); tickTimer(); return { result: { running: aiTask(t) }, summary: `⏱ Timing “${t.title}”`, changed: true }; }
+      if (i.action === 'stop') { if (!TimeLog.running(t)) throw new Error('That task has no running timer'); aiMutate(ctx, () => { Object.assign(t, TimeLog.stop(t, Date.now(), i.note)); }); tickTimer(); return { result: { task: aiTask(t) }, summary: `Stopped timer on “${t.title}” · ${TimeLog.fmt(taskHours(t))} total`, changed: true }; }
+      if (!i.minutes) throw new Error('minutes is required for add');
+      aiMutate(ctx, () => { Object.assign(t, TimeLog.add(t, i.minutes, { note: i.note })); });
+      return { result: { task: aiTask(t) }, summary: `Logged ${TimeLog.fmt(i.minutes * 60000)} on “${t.title}”`, changed: true };
     },
   },
   {
@@ -5379,6 +5508,7 @@ bindAssistant();
 bindNative();
 render();
 renderGate();
+tickTimer();
 if (!applyHash()) syncHash();
 addEventListener('hashchange', applyHash);
 checkReminders();
@@ -5402,6 +5532,6 @@ if (!isNative && 'serviceWorker' in navigator && location.protocol.startsWith('h
 }
 // Local development only: lets browser tests drive the app (never on the real site or in the APK)
 if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
-  window.__doable = { get state() { return state; }, get ui() { return ui; }, navigate, getList, toggleComplete, projectTasks, syncRecords, renderGate, render, shareSnapshot, shareUrl, openIssueEditor, issuesOf };
+  window.__doable = { get state() { return state; }, get ui() { return ui; }, navigate, getList, toggleComplete, projectTasks, syncRecords, renderGate, render, shareSnapshot, shareUrl, openIssueEditor, issuesOf, startTimer, stopTimer, runningTask };
 }
 })();
