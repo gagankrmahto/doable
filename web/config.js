@@ -12,4 +12,6 @@ window.DOABLE_CONFIG = window.DOABLE_CONFIG || {
   },
   // Where password-reset links return to (your website address).
   siteUrl: 'https://doable-gagan.web.app/',
+  // Private app: nothing is shown until the owner signs in. Set false for an app anyone can use.
+  requireLogin: true,
 };

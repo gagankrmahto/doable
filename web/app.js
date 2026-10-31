@@ -3938,6 +3938,7 @@ function scheduleNativeReminders() {
 function bindNative() {
   if (!isNative) return;
   native.App.addListener('backButton', () => {
+    if (document.body.classList.contains('gated')) return native.App.minimizeApp(); // nothing to go back to behind the login wall
     if (ui.menu) return closeMenu();
     if (modalOpen()) return closeModal();
     if (assistantOpen()) return closeAssistant();
@@ -4687,8 +4688,62 @@ function syncPill() {
     <i class="sp-dot"></i>
   </button>`;
 }
+/* ---------- Login wall (private app) ----------
+ * With requireLogin on, the app stays hidden behind a sign-in screen until the owner signs in.
+ * Firebase remembers the sign-in on each device, so this shows once per device and never offline. */
+const gateOn = () => !!((window.DOABLE_CONFIG || {}).requireLogin && window.DoableSync && DoableSync.configured);
+function renderGate() {
+  const el = $('#gate');
+  if (!el) return;
+  const S = window.DoableSync;
+  const locked = gateOn() && !(S && S.user);
+  document.body.classList.toggle('gated', locked);
+  el.hidden = !locked;
+  if (!locked) { el.innerHTML = ''; return; }
+  const checking = S.status === 'idle' || S.status === 'syncing';
+  const google = S.canUseGoogle();
+  el.innerHTML = `<div class="gate-card" role="dialog" aria-labelledby="gateTitle">
+    <span class="ws-avatar lg" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <h1 id="gateTitle">Doable</h1>
+    <p class="muted">${checking ? 'Checking your sign-in…' : 'This is a private workspace. Sign in to continue.'}</p>
+    ${checking ? '' : `
+    ${google ? `<button type="button" class="btn google-btn" data-gate="google"><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg><span>Continue with Google</span></button>
+    <div class="or-line"><span>or use email</span></div>` : ''}
+    <form class="gate-form" novalidate>
+      <label class="lbl">Email<input name="email" type="email" autocomplete="email" required ${google ? '' : 'autofocus'} placeholder="you@example.com"></label>
+      <label class="lbl">Password<input name="password" type="password" autocomplete="current-password" required placeholder="Your password"></label>
+      <p class="form-msg" role="status" aria-live="polite"></p>
+      <div class="row gap"><button type="button" class="link-btn" data-gate="forgot">Forgot password?</button><span class="spacer"></span><button type="submit" class="btn primary">Sign in</button></div>
+    </form>`}
+  </div>`;
+  if (!checking) {
+    const form = el.querySelector('.gate-form');
+    const msg = el.querySelector('.form-msg');
+    const say = (text, kind = 'err') => { msg.textContent = text; msg.className = `form-msg ${kind}`; };
+    el.addEventListener('click', async e => {
+      const act = e.target.closest('[data-gate]')?.dataset.gate;
+      if (act === 'google') { say('Opening Google…', 'info'); const { error } = await S.signInWithGoogle(); if (error) say(authError(error)); }
+      if (act === 'forgot') {
+        const email = form.email.value.trim();
+        if (!email) { say('Enter your email first, then tap “Forgot password?”'); return; }
+        const { error } = await S.resetPassword(email);
+        say(error ? authError(error) : 'If that email has an account, a link to set a new password is on its way.', error ? 'err' : 'ok');
+      }
+    });
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const email = form.email.value.trim(), password = form.password.value;
+      if (!email || !password) { say('Enter your email and password.'); return; }
+      say('Signing in…', 'info');
+      const { error } = await S.signIn(email, password);
+      if (error) say(authError(error));
+    });
+  }
+}
+
 let syncUserId = null;
 function onSyncStatus() {
+  renderGate();
   renderSidebar();
   const uidNow = DoableSync.user && DoableSync.user.id;
   if (uidNow && uidNow !== syncUserId) setTimeout(() => refreshAllGcal(), 0); // the website loads calendars via the signed-in proxy
@@ -4750,8 +4805,12 @@ function openAccount(mode = 'signin') {
         const a = e.target.closest('[data-a]')?.dataset.a;
         if (a === 'now') { await S.syncNow(); toast(S.status === 'synced' ? 'Everything is up to date' : 'Will retry shortly'); }
         if (a === 'signout') {
-          const ok = await confirmDialog({ title: 'Sign out?', message: 'Your tasks stay on this device, but stop syncing until you sign in again.', confirm: 'Sign out', danger: false });
-          if (ok) { await S.signOut(); toast('Signed out — tasks kept on this device'); }
+          const ok = await confirmDialog({ title: 'Sign out?', message: gateOn() ? 'Your tasks are safe in your account and will be removed from this device until you sign in again.' : 'Your tasks stay on this device, but stop syncing until you sign in again.', confirm: 'Sign out', danger: false });
+          if (ok) {
+            await S.signOut();
+            if (gateOn()) { state = seedState(); undoStack.length = 0; try { localStorage.removeItem(AI_CHAT); localStorage.removeItem(GCAL_KEY); } catch { /* ignore */ } gcalCache = {}; ui.view = { type: 'smart', id: 'today' }; ui.openId = null; save(); render(); }
+            else toast('Signed out — tasks kept on this device');
+          }
         }
       });
       const pw = m.querySelector('.acct-pw');
@@ -4861,6 +4920,7 @@ bindDetails();
 bindAssistant();
 bindNative();
 render();
+renderGate();
 if (!applyHash()) syncHash();
 addEventListener('hashchange', applyHash);
 checkReminders();
