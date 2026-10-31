@@ -50,6 +50,13 @@
     .notes { white-space: pre-wrap; font-size: 13px; color: var(--text-2); margin: 8px 0 0; }
     footer { margin-top: 28px; text-align: center; font-size: 12px; color: var(--text-3); }
     footer a { color: inherit; }
+    .ih { font-size: 14px; margin: 14px 0 6px; display: flex; align-items: center; gap: 8px; }
+    ul.issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    ul.issues li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; padding: 7px 10px; border-radius: 8px; background: var(--surface-2); }
+    ul.issues li.done { opacity: .6; }
+    ul.issues li.done b { text-decoration: line-through; }
+    ul.issues .ib { flex: 1; min-width: 0; }
+    ul.issues .is { font-size: 11.5px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
     .hidden { display: none; }
   </style>
 </head>
@@ -102,6 +109,7 @@
       <div class="facts"><span>${l.progress.done}/${l.progress.milestones} milestones · ${l.progress.pct}%</span>${l.due ? `<span>Due ${esc(fmtDate(l.due))}</span>` : ''}${l.price ? `<span>${money(l.paid)} of ${money(l.price)} received</span>` : ''}${l.stack ? `<span>${esc(l.stack)}</span>` : ''}${l.link ? `<a href="${esc(l.link)}" rel="noopener" target="_blank">Site ↗</a>` : ''}${l.repo ? `<a href="${esc(l.repo)}" rel="noopener" target="_blank">Code ↗</a>` : ''}</div>
       ${l.notes ? `<p class="notes">${esc(l.notes)}</p>` : ''}` : ''}
       ${l.tasks.length ? `<ul class="tasks">${l.tasks.map(task).join('')}</ul>` : `<p class="muted">${isProject ? 'No milestones yet.' : 'No tasks here.'}</p>`}
+      ${l.issues && l.issues.length ? `<h3 class="ih">Issues <span class="pill">${l.issueSummary.open} open · ${l.issueSummary.fixed + l.issueSummary.closed} resolved</span></h3><ul class="issues">${l.issues.map(i => `<li class="${i.open ? '' : 'done'}"><span class="it">${i.type === 'bug' ? '🐞' : i.type === 'feature' ? '✨' : '🔧'}</span><span class="ib"><b>${esc(i.title)}</b>${i.desc ? `<p class="notes">${esc(i.desc)}</p>` : ''}</span><span class="is">${esc(i.status)}${i.fixVersion ? ` · ${esc(i.fixVersion)}` : ''}</span></li>`).join('')}</ul>` : ''}
     </section>`;
     function render(d) {
       const when = new Date(d.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });

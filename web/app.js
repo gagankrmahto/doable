@@ -125,7 +125,7 @@ const GROUPS = [
   { v: 'status', label: 'Status' }, { v: 'priority', label: 'Priority' }, { v: 'due', label: 'Due date' },
   { v: 'list', label: 'List' }, { v: 'none', label: 'None' },
 ];
-const MODES = { list: { label: 'List', icon: 'list' }, board: { label: 'Board', icon: 'board' }, calendar: { label: 'Calendar', icon: 'calendarDays' } };
+const MODES = { list: { label: 'List', icon: 'list' }, board: { label: 'Board', icon: 'board' }, calendar: { label: 'Calendar', icon: 'calendarDays' }, issues: { label: 'Issues', icon: 'alert' } };
 const QA_EXAMPLES = [
   'Call mom tomorrow 6pm #family',
   'Pay rent every month !1',
@@ -337,7 +337,7 @@ function seedState() {
   settings.sadhanaInit = true;
   return {
     version: 2, lists: [inbox, personal, work, aol, ngo], tasks, settings, stats: { completions: { [todayStr()]: 1 } }, meta: { pristine: true },
-    practices: DEFAULT_PRACTICES.map(practiceFrom), sadhana: {}, people: [],
+    practices: DEFAULT_PRACTICES.map(practiceFrom), sadhana: {}, people: [], issues: [],
   };
 }
 
@@ -361,6 +361,7 @@ function normalize(data, { fixOrphans = false } = {}) {
     practices: Array.isArray(data.practices) ? data.practices.map(practiceFrom).filter(Boolean) : [],
     sadhana: data.sadhana && typeof data.sadhana === 'object' ? data.sadhana : {},
     people: Array.isArray(data.people) ? data.people.filter(p => p && p.id) : [],
+    issues: Array.isArray(data.issues) ? data.issues.map(Issues.from).filter(Boolean) : [],
   };
   if (ver < 2 && s.settings.accent === '#4f6bed') s.settings.accent = '#7b68ee';
   if (!s.lists.length) s.lists.push({ id: uid(), name: 'My Tasks', color: LIST_COLORS[0] });
@@ -863,7 +864,7 @@ function viewModel() {
     const done = items.filter(t => t.done);
     const active = items.length - done.length;
     return {
-      title: list.name, color: list.color, list, section: list.space ? 'Spaces' : isProject(list) ? (spaceList(list.project) || {}).name || 'Projects' : 'Lists', groupable: true, modes: ALL_MODES,
+      title: list.name, color: list.color, list, section: list.space ? 'Spaces' : isProject(list) ? (spaceList(list.project) || {}).name || 'Projects' : 'Lists', groupable: true, modes: isProject(list) ? [...ALL_MODES, 'issues'] : ALL_MODES,
       hub: list.space && (SPACES.find(s => s.id === list.space) || {}).projects ? list.space : null,
       project: isProject(list) ? list : null,
       comingUp: upcomingSpaceEvents(list),
@@ -1079,7 +1080,7 @@ function renderMain() {
   renderQaHint();
   const content = $('#content');
   content.dataset.mode = ui.mode;
-  content.innerHTML = vm.sadhana ? renderSadhana() : ui.mode === 'calendar' ? renderCalendar(vm) : ui.mode === 'board' ? renderBoard(vm) : renderList(vm);
+  content.innerHTML = vm.sadhana ? renderSadhana() : ui.mode === 'issues' && vm.project ? renderIssues(vm) : ui.mode === 'calendar' ? renderCalendar(vm) : ui.mode === 'board' ? renderBoard(vm) : renderList(vm);
   $('.content-wrap').classList.toggle('no-qa', !!vm.sadhana);
   ui.visibleIds = $$('#content [data-task]').map(el => el.dataset.id);
   if (ui.inlineKey) {
@@ -1118,10 +1119,11 @@ function renderHeader(vm) {
       </div>
       <span class="spacer"></span>
       <div class="tools">
+        ${ui.mode === 'issues' ? `<button class="btn primary sm" data-action="new-issue" data-list="${vm.project.id}" title="Report a bug or request a feature">${icon('plus')}<span>Issue</span></button>` : ''}
         ${vm.groupable && ui.mode === 'list' ? `<button class="tool-btn" data-action="group" title="Group by">${icon('group')}<span>Group: ${GROUPS.find(g => g.v === groupMode()).label}</span></button>` : ''}
-        ${ui.mode !== 'calendar' && vm.sortable !== false ? `<button class="tool-btn" data-action="sort" title="Sort">${icon('sort')}<span>${SORTS.find(s => s.v === sortMode()).label}</span></button>` : ''}
+        ${ui.mode !== 'calendar' && ui.mode !== 'issues' && vm.sortable !== false ? `<button class="tool-btn" data-action="sort" title="Sort">${icon('sort')}<span>${SORTS.find(s => s.v === sortMode()).label}</span></button>` : ''}
         ${ui.mode === 'list' && vm.completed && vm.completed.length ? `<button class="tool-btn ${closedOpen ? 'on' : ''}" data-action="toggle-completed" aria-pressed="${closedOpen}" title="Show completed tasks">${icon('checkCircle')}<span>Closed</span></button>` : ''}
-        <button class="btn primary sm" data-action="new-task" title="New task (N)">${icon('plus')}<span>Task</span></button>
+        ${ui.mode === 'issues' ? '' : `<button class="btn primary sm" data-action="new-task" title="New task (N)">${icon('plus')}<span>Task</span></button>`}
       </div>
     </div>`;
 }
@@ -2499,7 +2501,7 @@ function projectCard(p) {
   return `<article class="pj-card ${stale ? 'stale' : ''}" style="--pc:${p.color};--sc:${st.color}" data-nav="list:${p.id}" role="link" tabindex="0">
     <header>${avatar(p.name, p.color, 'sm')}<div class="pj-title"><b>${esc(p.name)}</b><span>${esc(p.client || 'No client yet')}</span></div><span class="pj-status">${esc(st.label)}</span></header>
     <div class="pj-bar" title="${pr.pct}% of tasks done"><span style="width:${pr.pct}%"></span></div>
-    <div class="pj-meta"><span>${pr.milestones ? `${pr.done}/${pr.milestones} milestones` : 'No milestones yet'}</span>${due}${moneyBit}</div>
+    <div class="pj-meta"><span>${pr.milestones ? `${pr.done}/${pr.milestones} milestones` : 'No milestones yet'}</span>${issueBadge(p.id)}${due}${moneyBit}</div>
     ${stale ? `<div class="pj-flag">⚠ Quiet for ${Math.floor((Date.now() - Freelance.lastActivity(p, tasks)) / 86400000)} days</div>` : next ? `<div class="pj-next">Next: ${esc(next.title)}</div>` : ''}
   </article>`;
 }
@@ -2540,7 +2542,7 @@ function projectHeader(p) {
       <button class="btn ghost sm" data-action="edit-list" data-list="${p.id}">${icon('edit')}Edit</button>
     </div>
     <div class="pj-bar lg" title="${pr.pct}% of tasks done"><span style="width:${pr.pct}%"></span></div>
-    <div class="pj-facts">${facts.map(([k, v]) => `<span><small>${k}</small><b>${esc(v)}</b></span>`).join('')}<span><small>Milestones</small><b>${pr.done}/${pr.milestones} done · ${pr.pct}%</b></span></div>
+    <div class="pj-facts">${facts.map(([k, v]) => `<span><small>${k}</small><b>${esc(v)}</b></span>`).join('')}<span><small>Milestones</small><b>${pr.done}/${pr.milestones} done · ${pr.pct}%</b></span><span><small>Issues</small><b>${(() => { const sm = Issues.summary(issuesOf(p.id)); return sm.total ? `${sm.openBugs} open bug${sm.openBugs === 1 ? '' : 's'} · ${sm.openFeatures} open RFE${sm.openFeatures === 1 ? '' : 's'}${sm.critical ? ` · ${sm.critical} critical` : ''}` : 'none yet'; })()}</b></span></div>
     ${p.notes ? `<p class="pj-notes">${esc(p.notes)}</p>` : ''}
   </section>`;
 }
@@ -2563,7 +2565,8 @@ function shareSnapshot(l) {
     const top = ts.filter(t => !t.parentId).sort((a, b) => a.done - b.done || (a.due || '9999').localeCompare(b.due || '9999') || a.order - b.order);
     const o = { name: x.name, color: x.color, tasks: top.map(t => ({ ...taskOut(t), subtasks: ts.filter(k => k.parentId === t.id).sort((a, b) => a.order - b.order).map(taskOut) })) };
     if (isProject(x)) {
-      Object.assign(o, { status: Freelance.statusOf(x.status).label, ...(x.client && { client: x.client }), ...(x.due && { due: x.due }), ...(x.stack && { stack: x.stack }), ...(x.link && { link: x.link }), ...(x.repo && { repo: x.repo }), progress: Freelance.progress(ts), ...(opts.notes && x.notes && { notes: x.notes }), ...(opts.money && x.price && { price: x.price, paid: x.paid || 0 }) });
+      const iss = Issues.sort(issuesOf(x.id)).map(i => ({ type: i.type, title: i.title, status: Issues.statusOf(i.status).label, open: Issues.isOpen(i), ...(i.type === 'bug' ? { severity: i.severity } : { priority: i.priority }), ...(i.fixVersion && { fixVersion: i.fixVersion }), ...(opts.notes && i.desc && { desc: i.desc.slice(0, 2000) }), updatedAt: i.updatedAt }));
+      Object.assign(o, { issues: iss, issueSummary: Issues.summary(issuesOf(x.id)), status: Freelance.statusOf(x.status).label, ...(x.client && { client: x.client }), ...(x.due && { due: x.due }), ...(x.stack && { stack: x.stack }), ...(x.link && { link: x.link }), ...(x.repo && { repo: x.repo }), progress: Freelance.progress(ts), ...(opts.notes && x.notes && { notes: x.notes }), ...(opts.money && x.price && { price: x.price, paid: x.paid || 0 }) });
     }
     return o;
   };
@@ -2653,6 +2656,102 @@ function openShareDialog(listId) {
       }
       say(on ? 'Re-encrypting with the new passcode…' : 'Encrypting and publishing…', 'info');
       try { await startShare(l, pass, opts); openShareDialog(listId); toast(on ? 'Passcode changed' : `Sharing ${l.name}`); } catch (err) { say(err.message || 'Could not publish'); }
+    });
+  });
+}
+
+/* ---------- Issues: bugs, feature requests and chores on a project ---------- */
+const issuesOf = projectId => state.issues.filter(i => i.projectId === projectId);
+const getIssue = id => state.issues.find(i => i.id === id);
+function issueBadge(projectId) {
+  const sm = Issues.summary(issuesOf(projectId));
+  if (!sm.total) return '';
+  return `<span class="pj-issues ${sm.critical ? 'crit' : sm.openBugs ? 'bugs' : ''}" title="${sm.open} open of ${sm.total} issues">${sm.openBugs ? `🐞 ${sm.openBugs}` : ''}${sm.openFeatures ? ` ✨ ${sm.openFeatures}` : ''}${!sm.open ? '✓ no open issues' : ''}</span>`;
+}
+function issueRow(i) {
+  const t = Issues.typeOf(i.type), st = Issues.statusOf(i.status);
+  const sev = i.type === 'bug' ? i.severity : i.priority;
+  return `<button class="iss-row ${Issues.isOpen(i) ? '' : 'closed'}" data-action="open-issue" data-issue="${i.id}" style="--tc:${t.color};--sc:${st.color}">
+    <span class="iss-type" title="${esc(t.label)}">${t.emoji}</span>
+    <span class="iss-main"><b>${esc(i.title)}</b><span>${[sev && sev !== 'normal' && sev !== 'major' ? sev : '', i.reporter && `by ${i.reporter}`, i.fixVersion && `fixed in ${i.fixVersion}`, i.version && !i.fixVersion && `found in ${i.version}`, relDay(i.updatedAt)].filter(Boolean).map(esc).join(' · ')}</span></span>
+    <span class="iss-status">${esc(st.label)}</span>
+  </button>`;
+}
+function relDay(ms) {
+  const d = Math.floor((Date.now() - ms) / 86400000);
+  return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d < 30 ? `${d} days ago` : fmtShort(ymd(new Date(ms)));
+}
+function renderIssues(vm) {
+  const p = vm.project;
+  const all = Issues.sort(issuesOf(p.id));
+  const sm = Issues.summary(all);
+  const f = ui.issueFilter || 'open';
+  const shown = all.filter(i => f === 'all' ? true : f === 'open' ? Issues.isOpen(i) : f === 'bugs' ? i.type === 'bug' && Issues.isOpen(i) : f === 'features' ? i.type === 'feature' && Issues.isOpen(i) : !Issues.isOpen(i));
+  const health = Issues.health(all);
+  const chip = (id, label, n) => `<button class="space-chip ${f === id ? 'on' : ''}" data-action="issue-filter" data-f="${id}">${label}${n != null ? ` <em>${n}</em>` : ''}</button>`;
+  return `${projectHeader(p)}
+    <section class="iss">
+      <div class="iss-top">
+        <div class="cal-spaces">${chip('open', 'Open', sm.open)}${chip('bugs', '🐞 Bugs', sm.openBugs)}${chip('features', '✨ Features', sm.openFeatures)}${chip('closed', 'Resolved', sm.fixed + sm.closed)}${chip('all', 'All', sm.total)}</div>
+        ${health != null ? `<span class="iss-health" title="Share of issues resolved; critical bugs weigh more">${health}% resolved</span>` : ''}
+      </div>
+      ${shown.length ? `<div class="iss-list">${shown.map(issueRow).join('')}</div>` : `<div class="empty"><div class="empty-art">${icon(sm.total ? 'checkCircle' : 'alert')}</div><h3>${sm.total ? (f === 'open' ? 'No open issues' : 'Nothing here') : 'No issues yet'}</h3><p>${sm.total ? 'Nice and quiet.' : 'Report a bug or note a feature request; Claude can file them for you too.'}</p></div>`}
+    </section>`;
+}
+function openIssueEditor(projectId, issueId) {
+  const p = getList(projectId);
+  const i = issueId ? getIssue(issueId) : null;
+  if (!p || (issueId && !i)) return;
+  const f = i || { type: 'bug', status: 'open', severity: 'major', priority: 'normal' };
+  const opt = (list, cur, labelOf = x => x) => list.map(x => { const v = typeof x === 'string' ? x : x.v; return `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(labelOf(x))}</option>`; }).join('');
+  openModal(`
+    <form class="modal-card wide iss-card" data-issue="${i ? i.id : ''}">
+      <div class="modal-title-row"><h2>${i ? `${Issues.typeOf(i.type).emoji} ${esc(Issues.typeOf(i.type).label)} · ${esc(p.name)}` : `New issue · ${esc(p.name)}`}</h2><button type="button" class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <div class="pj-form">
+        <label class="lbl">Type<select name="type">${opt(Issues.TYPES, f.type, x => `${x.emoji} ${x.label}${x.hint ? ` (${x.hint})` : ''}`)}</select></label>
+        <label class="lbl">Status<select name="status">${opt(Issues.STATUSES, f.status, x => x.label)}</select></label>
+        <label class="lbl pj-wide">Title<input name="title" value="${esc(f.title || '')}" required maxlength="200" placeholder="What's wrong, or what's wanted" autocomplete="off" ${i ? '' : 'autofocus'}></label>
+        <label class="lbl iss-sev">Severity<select name="severity">${opt(Issues.SEVERITIES, f.severity)}</select></label>
+        <label class="lbl iss-prio">Priority<select name="priority">${opt(Issues.PRIORITIES, f.priority)}</select></label>
+        <label class="lbl">Reported by<input name="reporter" value="${esc(f.reporter || '')}" maxlength="80" placeholder="You, or a client name"></label>
+        <label class="lbl">Found in version<input name="version" value="${esc(f.version || '')}" maxlength="40" placeholder="e.g. v1.1"></label>
+        <label class="lbl">Fixed in version / commit<input name="fixVersion" value="${esc(f.fixVersion || '')}" maxlength="80" placeholder="e.g. v1.2.0 or a commit"></label>
+        <label class="lbl">Link<input name="link" value="${esc(f.link || '')}" type="url" placeholder="Issue, PR or screenshot"></label>
+        <label class="lbl pj-wide">Details<textarea name="desc" rows="4" maxlength="8000" placeholder="Steps to reproduce, expected vs actual, or what the feature should do">${esc(f.desc || '')}</textarea></label>
+      </div>
+      ${i && i.history && i.history.length ? `<details class="iss-hist"><summary>History</summary><ul>${i.history.slice().reverse().map(h => `<li>${esc(new Date(h.at).toLocaleString(LOCALE, { dateStyle: 'medium', timeStyle: 'short' }))}: ${esc(Issues.statusOf(h.from).label)} → <b>${esc(Issues.statusOf(h.to).label)}</b>${h.by && h.by !== 'me' ? ` by ${esc(h.by)}` : ''}${h.note ? ` — ${esc(h.note)}` : ''}</li>`).join('')}</ul></details>` : ''}
+      <div class="modal-actions">
+        ${i ? `<button type="button" class="btn ghost danger-text" data-m="delete">${icon('trash')}Delete</button>` : ''}
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-m="cancel">Cancel</button>
+        <button type="submit" class="btn primary">${i ? 'Save' : 'Add issue'}</button>
+      </div>
+    </form>`, m => {
+    const form = m.querySelector('form');
+    const sync = () => { const bug = form.type.value === 'bug'; m.querySelector('.iss-sev').hidden = !bug; m.querySelector('.iss-prio').hidden = bug; };
+    form.type.addEventListener('change', sync); sync();
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const patch = {};
+      for (const k of ['type', 'status', 'title', 'severity', 'priority', 'reporter', 'version', 'fixVersion', 'link', 'desc']) patch[k] = String(fd.get(k) || '').trim();
+      if (!patch.title) return;
+      if (patch.link) patch.link = safeUrl(patch.link) || '';
+      commit(() => {
+        if (i) {
+          const idx = state.issues.findIndex(x => x.id === i.id);
+          state.issues[idx] = Issues.change(state.issues[idx], patch);
+        } else {
+          state.issues.push(Issues.from({ ...patch, id: uid(), projectId: p.id, createdAt: Date.now() }));
+        }
+      }, { toast: i ? 'Issue updated' : `${Issues.typeOf(patch.type).emoji} Issue added` });
+      closeModal();
+    });
+    m.querySelector('[data-m="delete"]')?.addEventListener('click', async () => {
+      const ok = await confirmDialog({ title: 'Delete this issue?', message: 'You can undo right after.' });
+      if (!ok) return;
+      commit(() => { state.issues = state.issues.filter(x => x.id !== i.id); }, { toast: 'Issue deleted' });
+      closeModal();
     });
   });
 }
@@ -3312,6 +3411,7 @@ function editList(listId, projectSpace = null) {
       commit(() => {
         state.lists = state.lists.filter(x => x.id !== listId);
         state.tasks = state.tasks.filter(t => t.listId !== listId);
+        state.issues = state.issues.filter(i => i.projectId !== listId);
         if (ui.openId && !getTask(ui.openId)) ui.openId = null;
         if (state.settings.defaultListId === listId) state.settings.defaultListId = state.lists[0].id;
         if (ui.view.type === 'list' && ui.view.id === listId) ui.view = { type: 'smart', id: 'today' };
@@ -3763,6 +3863,9 @@ async function handleAction(a, el, id) {
     case 'new-project': editList(null, el.dataset.space); break;
     case 'share': openShareDialog(el.dataset.list); break;
     case 'project-status': setProjectStatus(el.dataset.list, el.dataset.status); break;
+    case 'new-issue': openIssueEditor(el.dataset.list); break;
+    case 'open-issue': { const i = getIssue(el.dataset.issue); if (i) openIssueEditor(i.projectId, i.id); break; }
+    case 'issue-filter': ui.issueFilter = el.dataset.f; renderMain(); break;
     case 'edit-list': editList(el.dataset.list); break;
     case 'settings': openSettings(); break;
     case 'account': openAccount(); break;
@@ -4247,6 +4350,7 @@ How Doable works:
 - Lists hold tasks; each space is backed by a list, and there can be other lists. A task has a title, an optional due date (YYYY-MM-DD) and time (HH:MM, 24-hour), a priority (urgent, high, normal, low), a status (todo, progress, review, done), tags, notes, a star, an optional repeat, and subtasks. Meetings also have a length and an optional video-call link.
 - The calendar shows Indian festivals, Art of Living events, moon days (Purnima, Amavasya, Ekadashi, Pradosh, Shivaratri), birthdays and anniversaries, NGO days and any connected Google calendars. The panchang (sunrise, sunset, tithi, Rahu Kaal, Brahma Muhurta) follows the user's location.
 - Habits are daily practices (for example Sudarshan Kriya, meditation, drinking water) with check-ins, counts and streaks.
+- The Freelance space holds projects (client work and software the user maintains). Each has milestones (its tasks) and an issue tracker: bugs with a severity, feature requests (RFEs) and chores with a priority, moving open → in progress → fixed → verified → closed (or won't fix), with a fix version.
 
 How to help:
 - Each user message begins with a context line giving the current date, time, location and screen. Use it to resolve words like today, tomorrow or this Friday.
@@ -4312,7 +4416,7 @@ const AI_TOOLS = [
       return {
         result: {
           today: T,
-          lists: state.lists.map(l => ({ id: l.id, name: l.name, space: l.space || null, ...(isProject(l) && { project: true, client: l.client || null, status: l.status, due: l.due || null, price: l.price || 0, paid: l.paid || 0, progress: pProgress(l).pct + '%' }), open_tasks: top.filter(t => t.listId === l.id).length })),
+          lists: state.lists.map(l => ({ id: l.id, name: l.name, space: l.space || null, ...(isProject(l) && { project: true, client: l.client || null, status: l.status, due: l.due || null, price: l.price || 0, paid: l.paid || 0, progress: pProgress(l).pct + '%', issues: (() => { const sm = Issues.summary(issuesOf(l.id)); return { open_bugs: sm.openBugs, open_features: sm.openFeatures, critical: sm.critical, resolved: sm.fixed + sm.closed }; })() }), open_tasks: top.filter(t => t.listId === l.id).length })),
           project_alerts: Freelance.alerts(SPACES.filter(s => s.projects).flatMap(s => projectsOf(s.id)), projectTasks, T).map(a => `${a.project.name}: ${a.text}`),
           default_list: (getList(defaultListId()) || {}).name,
           counts: { overdue: top.filter(t => t.due && t.due < T).length, due_today: top.filter(t => t.due === T).length, next_7_days: top.filter(t => t.due > T && t.due <= week).length, no_date: top.filter(t => !t.due).length, completed_today: state.stats.completions[T] || 0 },
@@ -4609,6 +4713,62 @@ const AI_TOOLS = [
     },
   },
   {
+    name: 'list_issues',
+    description: 'List bugs, feature requests (RFEs) and chores on a freelance project, with status. Call before updating an issue (you need its id) or to answer "what is open on X".',
+    input_schema: { type: 'object', properties: { project: { type: 'string', description: 'Project name or id' }, status: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Default open' } }, required: ['project'], additionalProperties: false },
+    run(i) {
+      const p = aiFindList(i.project);
+      if (!p || !isProject(p)) throw new Error(`No project called “${i.project}”. Projects: ${SPACES.filter(s => s.projects).flatMap(s => projectsOf(s.id)).map(x => x.name).join(', ')}`);
+      const list = Issues.sort(issuesOf(p.id)).filter(x => i.status === 'all' ? true : i.status === 'closed' ? !Issues.isOpen(x) : Issues.isOpen(x));
+      return { result: { project: p.name, summary: Issues.summary(issuesOf(p.id)), issues: list.map(x => ({ id: x.id, type: x.type, title: x.title, status: x.status, ...(x.type === 'bug' ? { severity: x.severity } : { priority: x.priority }), ...(x.reporter && { reporter: x.reporter }), ...(x.version && { found_in: x.version }), ...(x.fixVersion && { fixed_in: x.fixVersion }), ...(x.desc && { details: x.desc.slice(0, 400) }) })) } };
+    },
+  },
+  {
+    name: 'report_issue',
+    description: 'File a bug, feature request (RFE) or chore on a freelance project. Use when the user mentions something broken, a client request, or a to-do on a piece of software.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project name or id' }, type: { type: 'string', enum: ['bug', 'feature', 'task'] }, title: { type: 'string', maxLength: 200 },
+        details: { type: 'string', maxLength: 8000 }, severity: { type: 'string', enum: ['critical', 'major', 'minor'], description: 'Bugs only' }, priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'Features/chores' },
+        reporter: { type: 'string', maxLength: 80 }, found_in: { type: 'string', maxLength: 40 }, link: { type: 'string' },
+      },
+      required: ['project', 'type', 'title'], additionalProperties: false,
+    },
+    run(i, ctx) {
+      const p = aiFindList(i.project);
+      if (!p || !isProject(p)) throw new Error(`No project called “${i.project}”`);
+      const x = Issues.from({ id: uid(), projectId: p.id, type: i.type, title: i.title, desc: i.details || '', severity: i.severity, priority: i.priority, reporter: i.reporter, version: i.found_in, link: i.link ? safeUrl(i.link) : undefined, createdAt: Date.now() });
+      aiMutate(ctx, () => { state.issues.push(x); });
+      return { result: { id: x.id, project: p.name, type: x.type, title: x.title, status: x.status }, summary: `${Issues.typeOf(x.type).emoji} Filed “${x.title}” on ${p.name}`, changed: true };
+    },
+  },
+  {
+    name: 'update_issue',
+    description: 'Change an issue: move its status (open → progress → fixed → verified → closed, or wontfix), set the fix version, severity/priority, title or details, or delete it. Find ids with list_issues.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' }, status: { type: 'string', enum: ['open', 'progress', 'fixed', 'verified', 'closed', 'wontfix'] }, note: { type: 'string', maxLength: 500, description: 'Why, recorded in the history' },
+        fixed_in: { type: 'string', maxLength: 80 }, title: { type: 'string', maxLength: 200 }, details: { type: 'string', maxLength: 8000 }, severity: { type: 'string', enum: ['critical', 'major', 'minor'] }, priority: { type: 'string', enum: ['high', 'normal', 'low'] },
+        type: { type: 'string', enum: ['bug', 'feature', 'task'] }, delete: { type: 'boolean' },
+      },
+      required: ['id'], additionalProperties: false,
+    },
+    run(i, ctx) {
+      const idx = state.issues.findIndex(x => x.id === i.id);
+      if (idx < 0) throw new Error(`No issue with id ${i.id}`);
+      const before = state.issues[idx];
+      if (i.delete) { aiMutate(ctx, () => { state.issues.splice(idx, 1); }); return { result: { deleted: i.id }, summary: `Deleted issue “${before.title}”`, changed: true }; }
+      const patch = {};
+      if (i.status) patch.status = i.status; if (i.note) patch.note = i.note; if (i.fixed_in) patch.fixVersion = i.fixed_in;
+      if (i.title) patch.title = i.title; if (i.details != null) patch.desc = i.details; if (i.severity) patch.severity = i.severity; if (i.priority) patch.priority = i.priority; if (i.type) patch.type = i.type;
+      let after;
+      aiMutate(ctx, () => { after = state.issues[idx] = Issues.change(before, patch); });
+      return { result: { id: after.id, title: after.title, status: after.status, ...(after.fixVersion && { fixed_in: after.fixVersion }) }, summary: i.status ? `${Issues.typeOf(after.type).emoji} “${after.title}” → ${Issues.statusOf(after.status).label}${after.fixVersion ? ` (${after.fixVersion})` : ''}` : `Updated “${after.title}”`, changed: true };
+    },
+  },
+  {
     name: 'get_habits',
     description: 'Get the user\'s habits with today\'s progress, current and best streaks, and check-ins for the last few days. Call this for questions about habits, sadhana or streaks.',
     input_schema: { type: 'object', properties: { days: { type: 'integer', minimum: 1, maximum: 60, description: 'How many past days of check-ins (default 7)' } }, additionalProperties: false },
@@ -4863,11 +5023,12 @@ function syncRecords() {
   // One record per check-in, so ticking different practices on two devices never conflicts
   Object.entries(state.sadhana).forEach(([day, logs]) => Object.entries(logs).forEach(([pid, log]) => m.set(`sadhana:${day}:${pid}`, { kind: 'sadhana', data: log })));
   state.people.forEach(p => m.set('person:' + p.id, { kind: 'person', data: p }));
+  state.issues.forEach(i => m.set('issue:' + i.id, { kind: 'issue', data: i }));
   return m;
 }
 
 function applyRemote(rows, replace = false) {
-  if (replace) { state.tasks = []; state.lists = []; state.practices = []; state.sadhana = {}; state.people = []; }
+  if (replace) { state.tasks = []; state.lists = []; state.practices = []; state.sadhana = {}; state.people = []; state.issues = []; }
   const pos = new Map(state.lists.map((l, i) => [l.id, i]));
   let changed = replace;
   for (const r of rows) {
@@ -4907,6 +5068,12 @@ function applyRemote(rows, replace = false) {
       const [, day, pid] = r.id.split(':');
       if (r.deleted) { if (state.sadhana[day]) { delete state.sadhana[day][pid]; if (!Object.keys(state.sadhana[day]).length) delete state.sadhana[day]; } }
       else (state.sadhana[day] = state.sadhana[day] || {})[pid] = { done: true, ...d };
+      changed = true;
+    } else if (r.kind === 'issue') {
+      const id = r.id.slice(6);
+      const i = state.issues.findIndex(x => x.id === id);
+      if (r.deleted) { if (i >= 0) state.issues.splice(i, 1); }
+      else { const x = Issues.from({ ...d, id }); if (x) { if (i >= 0) state.issues[i] = x; else state.issues.push(x); } }
       changed = true;
     } else if (r.kind === 'person') {
       const id = r.id.slice(7);
@@ -5235,6 +5402,6 @@ if (!isNative && 'serviceWorker' in navigator && location.protocol.startsWith('h
 }
 // Local development only: lets browser tests drive the app (never on the real site or in the APK)
 if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
-  window.__doable = { get state() { return state; }, get ui() { return ui; }, navigate, getList, toggleComplete, projectTasks, syncRecords, renderGate, render, shareSnapshot, shareUrl };
+  window.__doable = { get state() { return state; }, get ui() { return ui; }, navigate, getList, toggleComplete, projectTasks, syncRecords, renderGate, render, shareSnapshot, shareUrl, openIssueEditor, issuesOf };
 }
 })();

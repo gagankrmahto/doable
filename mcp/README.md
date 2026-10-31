@@ -37,6 +37,7 @@ Then, in any Claude session: "add a milestone 'payment gateway' to the clinic pr
 | `create_tasks` | Add tasks, meetings, subtasks, milestones |
 | `update_tasks` | Edit, move, reschedule, complete, reopen, delete |
 | `update_project` | Create or update a freelance project |
+| `list_issues` · `report_issue` · `update_issue` | Bugs, feature requests and chores on a project: file, move status (open → progress → fixed → verified → closed), set the fix version |
 | `log_habit` | Tick a habit or set its count |
 
 ## Safety

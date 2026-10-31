@@ -13,6 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import '../web/issues.js'; // sets globalThis.Issues (shared with the app)
+const Issues = globalThis.Issues;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -102,7 +104,10 @@ const view = t => ({
 });
 const projects = () => lists().filter(l => l.project);
 const progress = p => { const ts = tasks().filter(t => t.listId === p.id); const top = ts.filter(t => !t.parentId); return { milestones: top.length, done: top.filter(t => t.done).length, pct: ts.length ? Math.round(ts.filter(t => t.done).length / ts.length * 100) : 0 }; };
-const projectView = p => ({ id: p.id, name: p.name, client: p.client || null, status: p.status || 'lead', due: p.due || null, price: p.price || 0, paid: p.paid || 0, ...(p.link && { link: p.link }), ...(p.repo && { repo: p.repo }), ...(p.stack && { stack: p.stack }), ...(p.notes && { notes: p.notes }), progress: progress(p) });
+const issuesOf = pid => [...records].filter(([k]) => k.startsWith('issue:')).map(([, v]) => v.data).filter(i => i.projectId === pid);
+const findProject = name => { const n = String(name || '').trim().toLowerCase(); return projects().find(p => p.id === name) || projects().find(p => p.name.toLowerCase() === n) || projects().find(p => p.name.toLowerCase().includes(n)) || null; };
+const issueView = x => ({ id: x.id, type: x.type, title: x.title, status: x.status, ...(x.type === 'bug' ? { severity: x.severity } : { priority: x.priority }), ...(x.reporter && { reporter: x.reporter }), ...(x.version && { found_in: x.version }), ...(x.fixVersion && { fixed_in: x.fixVersion }), ...(x.link && { link: x.link }), ...(x.desc && { details: x.desc.slice(0, 600) }), updated: new Date(x.updatedAt).toISOString().slice(0, 10) });
+const projectView = p => ({ id: p.id, name: p.name, client: p.client || null, status: p.status || 'lead', due: p.due || null, price: p.price || 0, paid: p.paid || 0, ...(p.link && { link: p.link }), ...(p.repo && { repo: p.repo }), ...(p.stack && { stack: p.stack }), ...(p.notes && { notes: p.notes }), progress: progress(p), issues: (() => { const sm = Issues.summary(issuesOf(p.id)); return { open_bugs: sm.openBugs, open_features: sm.openFeatures, critical: sm.critical, resolved: sm.fixed + sm.closed }; })() });
 const text = v => ({ content: [{ type: 'text', text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
 const fail = m => ({ content: [{ type: 'text', text: m }], isError: true });
 const D = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD');
@@ -269,6 +274,57 @@ server.registerTool('update_project', {
   n.updatedAt = Date.now();
   await write([{ id: 'list:' + n.id, kind: 'list', data: n }]);
   return text({ project: projectView(n) });
+});
+
+server.registerTool('list_issues', {
+  title: 'List issues',
+  description: 'Bugs, feature requests (RFEs) and chores on a project with their status. Call before update_issue (you need the id).',
+  inputSchema: { project: z.string().describe('Project name or id'), status: z.enum(['open', 'closed', 'all']).optional().describe('Default open') },
+}, async i => {
+  try { await connect(); } catch (e) { return fail(e.message); }
+  const p = findProject(i.project);
+  if (!p) return fail(`No project called "${i.project}". Projects: ${projects().map(x => x.name).join(', ')}`);
+  const all = issuesOf(p.id);
+  const list = Issues.sort(all).filter(x => i.status === 'all' ? true : i.status === 'closed' ? !Issues.isOpen(x) : Issues.isOpen(x));
+  return text({ project: p.name, summary: Issues.summary(all), issues: list.map(issueView) });
+});
+
+server.registerTool('report_issue', {
+  title: 'Report an issue',
+  description: 'File a bug, feature request (RFE) or chore on a freelance project.',
+  inputSchema: {
+    project: z.string().describe('Project name or id'), type: z.enum(['bug', 'feature', 'task']), title: z.string().min(1).max(200), details: z.string().max(8000).optional(),
+    severity: z.enum(['critical', 'major', 'minor']).optional().describe('Bugs'), priority: z.enum(['high', 'normal', 'low']).optional().describe('Features and chores'),
+    reporter: z.string().max(80).optional(), found_in: z.string().max(40).optional(), link: z.string().url().optional(),
+  },
+}, async i => {
+  try { await connect(); } catch (e) { return fail(e.message); }
+  const p = findProject(i.project);
+  if (!p) return fail(`No project called "${i.project}". Projects: ${projects().map(x => x.name).join(', ')}`);
+  const x = Issues.from({ id: uid6(), projectId: p.id, type: i.type, title: i.title, desc: i.details || '', severity: i.severity, priority: i.priority, reporter: i.reporter, version: i.found_in, link: i.link, createdAt: Date.now() });
+  await write([{ id: 'issue:' + x.id, kind: 'issue', data: x }]);
+  return text({ filed: issueView(x), project: p.name });
+});
+
+server.registerTool('update_issue', {
+  title: 'Update an issue',
+  description: 'Move an issue status (open, progress, fixed, verified, closed, wontfix), set the fix version, change fields, or delete it.',
+  inputSchema: {
+    id: z.string(), status: z.enum(['open', 'progress', 'fixed', 'verified', 'closed', 'wontfix']).optional(), note: z.string().max(500).optional().describe('Recorded in the history'),
+    fixed_in: z.string().max(80).optional(), title: z.string().max(200).optional(), details: z.string().max(8000).optional(), severity: z.enum(['critical', 'major', 'minor']).optional(),
+    priority: z.enum(['high', 'normal', 'low']).optional(), type: z.enum(['bug', 'feature', 'task']).optional(), delete: z.boolean().optional(),
+  },
+}, async i => {
+  try { await connect(); } catch (e) { return fail(e.message); }
+  const rec = records.get('issue:' + i.id);
+  if (!rec) return fail(`No issue with id ${i.id}`);
+  if (i.delete) { await write([{ id: 'issue:' + i.id, kind: 'issue', data: null }]); return text({ deleted: i.id }); }
+  const patch = {};
+  if (i.status) patch.status = i.status; if (i.note) patch.note = i.note; if (i.fixed_in) patch.fixVersion = i.fixed_in;
+  if (i.title) patch.title = i.title; if (i.details != null) patch.desc = i.details; if (i.severity) patch.severity = i.severity; if (i.priority) patch.priority = i.priority; if (i.type) patch.type = i.type;
+  const after = Issues.change(rec.data, patch, 'claude');
+  await write([{ id: 'issue:' + after.id, kind: 'issue', data: after }]);
+  return text({ updated: issueView(after) });
 });
 
 server.registerTool('log_habit', {
