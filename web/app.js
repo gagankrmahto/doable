@@ -3565,6 +3565,10 @@ function openSettings() {
         <button class="btn ghost sm" data-act="widget">${icon('plus')}Add to home screen</button>
       </div>` : ''}
       <div class="set-row">
+        <div><b>Use with Claude</b><div class="muted small">Let Claude Code or the Claude desktop app read and update your tasks, projects, issues and timers</div></div>
+        <button class="btn ghost sm" data-act="claude-mcp">${icon('sparkles')}Set up</button>
+      </div>
+      <div class="set-row">
         <div><b>Google Calendar</b><div class="muted small">${gcals().length ? `${esc(gcals().map(c => c.name).join(', '))} · events show on your calendar` : 'See your Google events and meetings next to your tasks'}</div></div>
         <button class="btn ghost sm" data-act="gcal">📅 ${gcals().length ? 'Manage' : 'Connect'}</button>
       </div>
@@ -3605,6 +3609,7 @@ function openSettings() {
       if (act === 'location') openLocationPicker();
       if (act === 'people') openPeopleManager();
       if (act === 'gcal') openGcalManager();
+      if (act === 'claude-mcp') openClaudeMcpHelp();
       if (act === 'widget' && native.WidgetBridge) {
         updateWidget();
         const r = await native.WidgetBridge.pin().catch(() => ({ requested: false }));
@@ -3624,6 +3629,47 @@ function openSettings() {
         save(); render();
       }
       if (e.target.dataset.act === 'import' && e.target.files[0]) importData(e.target.files[0]);
+    });
+  });
+}
+
+// Settings → Use with Claude: everything needed to connect the MCP server, filled in for this account
+function openClaudeMcpHelp() {
+  const S = window.DoableSync;
+  const email = (S && S.user && S.user.email) || 'you@gmail.com';
+  const hasPassword = !!(S && S.user && S.user.providers && S.user.providers.includes('password'));
+  const repo = 'https://github.com/gagankrmahto/doable';
+  const dir = 'C:\\ws\\tools\\doable\\mcp';
+  const pw = `New-Item -ItemType Directory -Force "$HOME\\.doable-mcp" | Out-Null; $p = Read-Host "Doable password" -AsSecureString; [IO.File]::WriteAllText("$HOME\\.doable-mcp\\password", [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)))`;
+  const code = `cd ${dir}; npm install --ignore-scripts; claude mcp add --scope user doable -e DOABLE_EMAIL=${email} -- node ${dir}\\server.mjs`;
+  const desktop = JSON.stringify({ mcpServers: { doable: { command: 'node', args: [dir + '\\server.mjs'], env: { DOABLE_EMAIL: email } } } }, null, 2);
+  const block = (id, title, text, note) => `<div class="mcp-step"><div class="mcp-step-head"><b>${title}</b><button class="btn ghost sm" data-copy="${id}">${icon('copy')}Copy</button></div>${note ? `<p class="muted small">${note}</p>` : ''}<pre id="${id}">${esc(text)}</pre></div>`;
+  openModal(`
+    <div class="modal-card wide mcp-card">
+      <div class="modal-title-row"><h2>${icon('sparkles')} Use Doable with Claude</h2><button class="icon-btn sm" data-m="cancel" aria-label="Close">${icon('x')}</button></div>
+      <p class="muted small">Doable ships an MCP server that lets Claude Code and the Claude desktop app read and change your tasks, freelance projects, bugs and feature requests, timers and habits. It runs on your computer, signs in as you, and every change appears in the app within a second with Undo. Three steps, once per computer.</p>
+      ${!(S && S.user) ? `<p class="form-msg err">Sign in to Cloud sync first; the server uses your Doable account.</p>` : ''}
+      ${S && S.user && !hasPassword ? `<p class="form-msg err">Your account has no password yet. Open Cloud sync (bottom of the sidebar) → <b>Add password</b> first; the server signs in with email + password.</p>` : ''}
+      <ol class="mcp-steps">
+        <li>${block('mcp-pw', 'Save your Doable password on this computer', pw, 'Paste into PowerShell. It asks for the password with the input hidden and saves it where only your Windows user can read it. Needs the app code at <code>' + esc(dir) + '</code> (<a href="' + repo + '" target="_blank" rel="noopener">clone it</a> if this is a new computer).')}</li>
+        <li>${block('mcp-code', 'Claude Code (any folder, any session)', code, 'Paste into PowerShell. Then start a new Claude Code session; <code>claude mcp list</code> should show “doable … Connected”.')}</li>
+        <li>${block('mcp-desktop', 'Claude desktop app', desktop, 'Settings → Developer → Edit config, add this inside the file (merge with any existing <code>mcpServers</code>), then quit the app completely and reopen it.')}</li>
+      </ol>
+      <h3 class="set-h">Then just say things like</h3>
+      <ul class="mcp-say">
+        <li>“What's on my plate today?” · “What's overdue?”</li>
+        <li>“Create a project ‘Clinic website’ for Dr Verma, active, due 20 Nov, ₹40,000”</li>
+        <li>“File a bug on Clinic website: contact form 500s on empty phone, critical”</li>
+        <li>“Mark the contact-form bug fixed in v1.2.0” · “Start timing ‘build pages’”</li>
+        <li>“Log my kriya” · “I spent 2 hours on the invoice feature”</li>
+      </ul>
+      <p class="muted small">Full guide: <a href="${repo}/blob/main/mcp/USING-WITH-CLAUDE.md" target="_blank" rel="noopener">mcp/USING-WITH-CLAUDE.md</a>. The server only works on this computer; Claude on your phone or claude.ai would need a cloud version.</p>
+    </div>`, m => {
+    m.addEventListener('click', async e => {
+      const b = e.target.closest('[data-copy]');
+      if (!b) return;
+      const text = m.querySelector('#' + b.dataset.copy).textContent;
+      try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { const r = document.createRange(); r.selectNodeContents(m.querySelector('#' + b.dataset.copy)); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Select and copy the text'); }
     });
   });
 }
