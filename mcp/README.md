@@ -26,7 +26,7 @@ It runs on your own computer. Nothing extra is hosted and nothing costs anything
    { "mcpServers": { "doable": { "command": "node", "args": ["C:\\ws\\tools\\doable\\mcp\\server.mjs"], "env": { "DOABLE_EMAIL": "gagan0966@gmail.com" } } } }
    ```
 
-Then, in any Claude session: "add a milestone 'payment gateway' to the clinic project due Friday", "what's overdue", "mark the standup done", "log my kriya".
+Then, in any Claude session (more examples in [USING-WITH-CLAUDE.md](USING-WITH-CLAUDE.md)): "add a milestone 'payment gateway' to the clinic project due Friday", "what's overdue", "mark the standup done", "log my kriya".
 
 ## Tools
 
