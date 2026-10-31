@@ -29,6 +29,10 @@ Module._load = function (request, ...rest) { return stubs[request] || origLoad.c
 
 const fnDir = path.join(__dirname, '..', 'firebase', 'functions');
 require('child_process').execSync('node scripts/prep-functions.js', { cwd: path.join(__dirname, '..'), stdio: 'ignore' });
+// The function has its own package; install it on a fresh checkout (CI) so express and the MCP SDK resolve
+if (!require('fs').existsSync(path.join(fnDir, 'node_modules', 'express'))) {
+  require('child_process').execSync('npm ci --ignore-scripts', { cwd: fnDir, stdio: 'ignore' });
+}
 const { mcp } = require(path.join(fnDir, 'mcp.js'));
 
 // ---- a local HTTP host for the handler ----
