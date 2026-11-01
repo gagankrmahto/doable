@@ -282,6 +282,7 @@
     Sync.leader = true;
   }
 
+  const isNativeApp = () => !!(global.Capacitor && global.Capacitor.isNativePlatform && global.Capacitor.isNativePlatform());
   Sync.init = function init(hooks) {
     appHooks = hooks;
     const cfg = global.DOABLE_CONFIG || {};
@@ -291,7 +292,11 @@
     let app;
     try {
       app = fb.initializeApp(cfg.firebase);
-      auth = fb.getAuth(app);
+      // In the Android WebView the default auth setup never keeps the session (the user looks signed out
+      // again after signing in); the plugin's guide says to initialise with IndexedDB persistence there.
+      auth = isNativeApp()
+        ? fb.initializeAuth(app, { persistence: [fb.indexedDBLocalPersistence, fb.browserLocalPersistence] })
+        : fb.getAuth(app);
       db = fb.getFirestore(app);
     } catch (e) {
       // Firebase failed to start in this environment: say so and let the wall show the form
@@ -322,7 +327,6 @@
 
   // Auth calls resolve to { data, error } so the screens can show friendly messages
   const attempt = async fn => { try { return { data: await fn(), error: null }; } catch (error) { return { data: null, error }; } };
-  const isNativeApp = () => !!(global.Capacitor && global.Capacitor.isNativePlatform && global.Capacitor.isNativePlatform());
 
   Sync.changed = () => { if (engine) engine.changed(); };
   Sync.syncNow = () => (engine ? engine.syncNow() : Promise.resolve());
@@ -362,6 +366,8 @@
   Sync.signOut = async () => {
     end();
     localStore.clear();
+    const plugin = nativeAuth();
+    if (plugin) { try { await plugin.signOut(); } catch { /* native layer may not be signed in */ } }
     await fb.signOut(auth);
   };
 
