@@ -1659,3 +1659,4 @@ body.gated .app, body.gated .assistant, body.gated .details, body.gated #modalRo
 /* In-app update banner */
 .up-bar { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .up-bar .i { width: 14px; height: 14px; vertical-align: -2px; }
+.gate-diag { font-size: 10.5px; color: var(--text-3); word-break: break-word; margin-top: 4px; }

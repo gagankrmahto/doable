@@ -225,6 +225,8 @@
   const Sync = {
     configured: false,
     status: 'unconfigured', // unconfigured | restoring | signed-out | syncing | synced | offline | error | idle
+    authEvents: 0, // how many times Firebase has reported the sign-in state (diagnostics)
+    initError: null,
     user: null,
     lastSync: 0,
     error: null,
@@ -286,9 +288,17 @@
     fb = global.firebaseSdk;
     if (!cfg.firebase || !cfg.firebase.apiKey || !fb) { publish('unconfigured'); return; }
     Sync.configured = true;
-    const app = fb.initializeApp(cfg.firebase);
-    auth = fb.getAuth(app);
-    db = fb.getFirestore(app);
+    let app;
+    try {
+      app = fb.initializeApp(cfg.firebase);
+      auth = fb.getAuth(app);
+      db = fb.getFirestore(app);
+    } catch (e) {
+      // Firebase failed to start in this environment: say so and let the wall show the form
+      Sync.initError = (e && e.message) || String(e);
+      publish('signed-out');
+      return;
+    }
     publish('restoring'); // Firebase reads the saved session before its first callback; the login wall waits quietly
     // If that first callback never comes (an Android WebView whose storage read hangs after an update), stop
     // waiting: show the sign-in form. A session that restores later still opens the app through the callback.
@@ -296,6 +306,7 @@
     setTimeout(() => { if (!answered && Sync.status === 'restoring') publish('signed-out'); }, 6000);
     fb.onAuthStateChanged(auth, u => {
       answered = true;
+      Sync.authEvents++;
       const user = u ? { id: u.uid, email: u.email, providers: u.providerData.map(p => p.providerId) } : null;
       if ((user && user.id) !== (Sync.user && Sync.user.id)) {
         end();
