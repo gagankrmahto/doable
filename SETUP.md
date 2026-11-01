@@ -79,7 +79,13 @@ The Android app reads Google Calendar feeds directly. Browsers aren't allowed to
 npm run deploy:calendar
 ```
 
-## 7. Let GitHub sign the Android app
+## 7. How app updates reach the phone
+
+Most releases are web-only. `npm run deploy` writes `web/version.json` (build id, file hashes, the minimum APK version) next to the site. The Android app checks it on launch and every 30 minutes, downloads a newer bundle into private storage, verifies every hash, and serves it on the next launch (or right away with **Restart now**). The first three launches of a new bundle are watched; if the app never reports healthy, the previous bundle is restored. A new APK always starts from its built-in bundle.
+
+When a web build needs a native change (new plugin, permission), raise `MIN_NATIVE` in `scripts/build-manifest.js` to the new APK's version code; older APKs then show a "Get the APK" link instead of updating.
+
+## 8. Let GitHub sign the Android app
 
 The release signing key was generated on your PC in `C:\ws\tools\doable-signing\`, outside the repo, so it's never committed. **Back up that folder** (a password manager or a private drive). Every future update must be signed with the same key.
 
@@ -90,7 +96,7 @@ The release signing key was generated on your PC in `C:\ws\tools\doable-signing\
    - `ANDROID_KEY_ALIAS`
    - `ANDROID_KEY_PASSWORD`
 
-## 8. Publish an Android release
+## 9. Publish an Android release
 
 ```bash
 git tag v1.0.0
@@ -99,7 +105,7 @@ git push origin v1.0.0
 
 GitHub Actions tests the sync engine, builds the signed APK, and creates a **Release** with `Doable-1.0.0.apk` attached (about 5 minutes). For later updates, bump the tag (`v1.0.1`, `v1.1.0`, …).
 
-## 9. Install everywhere
+## 10. Install everywhere
 
 - **Android:** on your phone, open the repo's **Releases** page, download the APK, open it, and allow "Install unknown apps" if asked. Later versions install over the top and keep your data.
 - **Desktop Chrome / Edge:** open the website and click the **Install** icon in the address bar to get an app window.

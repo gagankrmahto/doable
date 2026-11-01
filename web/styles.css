@@ -1655,3 +1655,7 @@ body.gated .app, body.gated .assistant, body.gated .details, body.gated #modalRo
 .mcp-step pre { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-all; user-select: all; }
 .mcp-say { margin: 0; padding-left: 20px; font-size: 13px; color: var(--text-2); display: flex; flex-direction: column; gap: 4px; }
 .mcp-card a { color: var(--accent); }
+
+/* In-app update banner */
+.up-bar { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.up-bar .i { width: 14px; height: 14px; vertical-align: -2px; }

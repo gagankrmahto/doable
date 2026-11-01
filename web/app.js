@@ -1251,6 +1251,7 @@ function renderList(vm) {
   if (vm.list && vm.list.space === 'aol') {
     html += `<div class="pp-bar cp-bar"><span>🗓️ Planning a course? Find the best dates by moon, festivals and your calendar</span><button class="btn ghost sm" data-action="course-planner">Plan a course</button></div>`;
   }
+  html += updateBanner();
   if (vm.projectAlerts && vm.projectAlerts.length) html += projectAlertStrip(vm.projectAlerts);
   if (vm.hub) html += projectHub(vm.hub);
   if (vm.project) html += projectHeader(vm.project);
@@ -2680,6 +2681,17 @@ function openShareDialog(listId) {
   });
 }
 
+/* ---------- In-app updates (Android) ---------- */
+function updateBanner() {
+  if (!window.DoableUpdate) return '';
+  const u = DoableUpdate.state();
+  if (!u.native) return '';
+  if (u.nativeNeeded) return `<div class="pp-bar up-bar"><span>${icon('download')} A newer Doable needs an app update from GitHub</span><a class="btn primary sm" href="${esc(u.nativeNeeded.releases)}" target="_blank" rel="noopener">Get the APK</a></div>`;
+  if (u.staged) return `<div class="pp-bar up-bar"><span>${icon('sparkles')} Update downloaded (${esc(u.staged.build.split('-')[0])}). It applies next time you open Doable.</span><button class="btn primary sm" data-action="update-now">Restart now</button></div>`;
+  return '';
+}
+function renderUpdateBanner() { renderMain(); }
+
 /* ---------- Time tracking ---------- */
 const runningTask = () => state.tasks.find(t => TimeLog.running(t)) || null;
 const taskHours = t => TimeLog.ms(TimeLog.logsOf(t));
@@ -3580,6 +3592,10 @@ function openSettings() {
         <div><b>Home-screen widget</b><div class="muted small">Today’s tasks, next meeting and quick add on your home screen</div></div>
         <button class="btn ghost sm" data-act="widget">${icon('plus')}Add to home screen</button>
       </div>` : ''}
+      ${isNative && window.DoableUpdate ? (() => { const u = DoableUpdate.state(); const b = (window.DOABLE_BUILD || {}).build; return `<div class="set-row">
+        <div><b>App version</b><div class="muted small">Doable ${esc((u.running || {}).versionName || '')}${b ? ` · web build ${esc(b.split('-')[0])}` : ' · built-in web app'}${u.staged ? ' · update ready' : ''}. Updates download on their own and apply next launch.</div></div>
+        <button class="btn ghost sm" data-action="${u.staged ? 'update-now' : 'update-check'}">${u.staged ? 'Restart to update' : 'Check now'}</button>
+      </div>`; })() : ''}
       <div class="set-row">
         <div><b>Use with Claude</b><div class="muted small">Let Claude Code or the Claude desktop app read and update your tasks, projects, issues and timers</div></div>
         <button class="btn ghost sm" data-act="claude-mcp">${icon('sparkles')}Set up</button>
@@ -3968,6 +3984,8 @@ async function handleAction(a, el, id) {
     case 'ev-join': { const e = findEvent(el.dataset.ev); if (e && e.link) openLink(e.link); break; }
     case 'gcal': openGcalManager(); break;
     case 'course-planner': openCoursePlanner(); break;
+    case 'update-now': DoableUpdate.applyNow(); break;
+    case 'update-check': { const b = el; b.disabled = true; DoableUpdate.check({ force: true }).then(u => { b.disabled = false; toast(u.staged ? 'Update downloaded — restart to apply' : u.nativeNeeded ? 'A newer APK is needed' : 'You’re on the latest version'); openSettings(); }); break; }
     case 'assistant': if (assistantOpen()) closeAssistant(); else openAssistant(); break;
     case 'pick-location': openLocationPicker(); break;
     case 'people': openPeopleManager(); break;
@@ -5395,10 +5413,13 @@ function renderGate() {
 }
 
 let syncUserId = null;
+let healthyReported = false;
 function onSyncStatus() {
   renderGate();
   renderSidebar();
   if (DoableSync.user && DoableSync.status === 'synced') scheduleRepublish();
+  // The app rendered and synced on this bundle: tell the updater it is safe to keep
+  if (!healthyReported && window.DoableUpdate && (DoableSync.status === 'synced' || DoableSync.status === 'unconfigured')) { healthyReported = true; DoableUpdate.markHealthy(); }
   const uidNow = DoableSync.user && DoableSync.user.id;
   if (uidNow && uidNow !== syncUserId) setTimeout(() => refreshAllGcal(), 0); // the website loads calendars via the signed-in proxy
   syncUserId = uidNow || null;
@@ -5576,6 +5597,10 @@ bindNative();
 render();
 renderGate();
 tickTimer();
+if (window.DoableUpdate) {
+  DoableUpdate.init({ onState: renderUpdateBanner, onMessage: m => toast(m) });
+  DoableUpdate.applyWhenHidden();
+}
 if (!applyHash()) syncHash();
 addEventListener('hashchange', applyHash);
 checkReminders();

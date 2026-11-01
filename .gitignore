@@ -39,3 +39,7 @@ mcp/node_modules/
 firebase/functions/tools.mjs
 firebase/functions/web/
 firebase/functions/node_modules/
+
+# Generated at deploy time by scripts/build-manifest.js
+web/version.json
+web/build.js
