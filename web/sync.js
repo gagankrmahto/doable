@@ -290,7 +290,12 @@
     auth = fb.getAuth(app);
     db = fb.getFirestore(app);
     publish('restoring'); // Firebase reads the saved session before its first callback; the login wall waits quietly
+    // If that first callback never comes (an Android WebView whose storage read hangs after an update), stop
+    // waiting: show the sign-in form. A session that restores later still opens the app through the callback.
+    let answered = false;
+    setTimeout(() => { if (!answered && Sync.status === 'restoring') publish('signed-out'); }, 6000);
     fb.onAuthStateChanged(auth, u => {
+      answered = true;
       const user = u ? { id: u.uid, email: u.email, providers: u.providerData.map(p => p.providerId) } : null;
       if ((user && user.id) !== (Sync.user && Sync.user.id)) {
         end();
